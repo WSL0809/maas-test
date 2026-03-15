@@ -1,0 +1,8 @@
+{
+  "models": [
+    "glm5",
+    "qwen35",
+    "minimax-m25",
+    "minimax-m21"
+  ]
+}
