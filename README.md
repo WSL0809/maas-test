@@ -80,6 +80,7 @@ OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py
 `test_create_returns_tool_call`
 
 - 验证模型的工具调用路径是否可用
+- 默认主套件会按模型类选择合适的 `tool_choice` 形状；对 `glm5`、`qwen35`、`minimax-*` 会显式使用 `tool_choice="auto"`
 - 检查 `message.tool_calls` 是否存在
 - 检查函数名是否为 `collect_weather_args`
 - 检查函数参数是否包含 `city=Tokyo` 与 `unit=celsius`
@@ -104,12 +105,14 @@ OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py
 | 模型类 | tools 策略 | `response_format` 策略 | 结构化结果通道 |
 | --- | --- | --- | --- |
 | `TestKimiK25ChatCompletions` | 强制命名 `tool_choice` | 原始请求 | `message.content` |
-| `TestGLM5ChatCompletions` | relaxed tools | `chat_template_kwargs.enable_thinking=false` | `message.content` |
-| `TestQwen35ChatCompletions` | relaxed tools | `chat_template_kwargs.enable_thinking=false` | `message.content` |
-| `TestMinimaxM25ChatCompletions` | relaxed tools | 原始请求 | `message.reasoning` |
-| `TestMinimaxM21ChatCompletions` | relaxed tools | 原始请求 | `message.reasoning` |
+| `TestGLM5ChatCompletions` | `tool_choice="auto"` | `chat_template_kwargs.enable_thinking=false` | `message.content` |
+| `TestQwen35ChatCompletions` | `tool_choice="auto"` | `chat_template_kwargs.enable_thinking=false` | `message.content` |
+| `TestMinimaxM25ChatCompletions` | `tool_choice="auto"` | 原始请求 | `message.reasoning` |
+| `TestMinimaxM21ChatCompletions` | `tool_choice="auto"` | 原始请求 | `message.reasoning` |
 
 如果命令行显式传了 `--chat-model`，默认主套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
+
+默认主套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，tools 路径和结构化输出通道允许按模型类做最小差异化。
 
 ### 模型接口返回特点
 
@@ -128,6 +131,11 @@ strict 对照套件位于 [test_chat_strict.py](/Users/wangshilong/Downloads/maa
 - forced named `tool_choice` 是否真的可用
 - `response_format` 结果是否真的出现在 `message.content`
 - 流式返回是否保持标准 SSE 行为
+
+换句话说：
+
+- 默认主套件偏向“按模型最佳实践接入”
+- strict 对照套件偏向“按统一 OpenAI-compatible 语义审计”
 
 ## SDK Smoke 套件
 

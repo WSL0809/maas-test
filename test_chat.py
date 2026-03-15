@@ -96,6 +96,8 @@ class BaseHTTPXChatTests:
         }
         if self.TOOL_REQUEST_MODE == "forced_named_tool_choice":
             payload["tool_choice"] = {"type": "function", "function": {"name": "collect_weather_args"}}
+        elif self.TOOL_REQUEST_MODE == "auto_tool_choice":
+            payload["tool_choice"] = "auto"
         payload.update(self.tool_request_overrides())
         return payload
 
@@ -266,7 +268,7 @@ class BaseOpenAICompatibleChatTests(BaseHTTPXChatTests):
 class BaseThinkingDisabledStructuredOutputTests(BaseHTTPXChatTests):
     __test__ = False
 
-    TOOL_REQUEST_MODE = "relaxed_tools_only"
+    TOOL_REQUEST_MODE = "auto_tool_choice"
 
     def response_format_request_overrides(self) -> Mapping[str, object]:
         return build_chat_template_disable_thinking()
@@ -275,7 +277,7 @@ class BaseThinkingDisabledStructuredOutputTests(BaseHTTPXChatTests):
 class BaseReasoningStructuredOutputTests(BaseHTTPXChatTests):
     __test__ = False
 
-    TOOL_REQUEST_MODE = "relaxed_tools_only"
+    TOOL_REQUEST_MODE = "auto_tool_choice"
     RESPONSE_FORMAT_CHANNEL = "reasoning"
 
 
