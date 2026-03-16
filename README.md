@@ -18,6 +18,13 @@
 - `OPENAI_CHAT_TEST_MODEL`
 - `OPENAI_CHAT_TEST_MODELS`（可选，逗号分隔，用于一次运行多个模型）
 
+也可以直接通过 pytest 命令行参数覆盖连接信息：
+
+- `--OPENAI_BASE_URL=http://127.0.0.1:8000/v1`
+- `--OPENAI_API_KEY=xxx`
+
+其中 `--OPENAI_API_KEY` 如果不传，会自动设为空字符串；`--OPENAI_BASE_URL` 如果不传，则继续使用 `.env` 中的值，若 `.env` 也没有配置，则回退到 `https://api.openai.com/v1`。
+
 安装依赖：
 
 ```bash
@@ -28,6 +35,12 @@ uv sync
 
 ```bash
 uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py
+```
+
+显式指定连接地址：
+
+```bash
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
 ```
 
 运行 SDK smoke 套件：

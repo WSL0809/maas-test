@@ -199,6 +199,10 @@ def require_env(name: str) -> str:
     return value
 
 
+def get_api_key() -> str:
+    return os.getenv("OPENAI_API_KEY", "")
+
+
 def resolve_base_url() -> str:
     base_url = os.getenv("OPENAI_BASE_URL") or DEFAULT_API_BASE_URL
     return base_url.rstrip("/") + "/"
@@ -208,7 +212,7 @@ def build_http_client() -> httpx.Client:
     return httpx.Client(
         base_url=resolve_base_url(),
         headers={
-            "Authorization": f"Bearer {require_env('OPENAI_API_KEY')}",
+            "Authorization": f"Bearer {get_api_key()}",
             "Content-Type": "application/json",
         },
         timeout=httpx.Timeout(60.0),
@@ -216,7 +220,7 @@ def build_http_client() -> httpx.Client:
 
 
 def build_sdk_client() -> OpenAI:
-    client_kwargs = {"api_key": require_env("OPENAI_API_KEY")}
+    client_kwargs = {"api_key": get_api_key()}
     base_url = resolve_base_url()
     if base_url:
         client_kwargs["base_url"] = base_url

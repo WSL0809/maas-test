@@ -41,6 +41,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="chat_model_config",
         help="Path to the JSON config file that defines the default model list.",
     )
+    group.addoption(
+        "--OPENAI_BASE_URL",
+        action="store",
+        default=None,
+        dest="openai_base_url",
+        help="Override OPENAI_BASE_URL for this pytest run.",
+    )
+    group.addoption(
+        "--OPENAI_API_KEY",
+        action="store",
+        default=None,
+        dest="openai_api_key",
+        help="Override OPENAI_API_KEY for this pytest run. Defaults to an empty string when omitted.",
+    )
     parser.addoption(
         "--run-sdk-smoke",
         action="store_true",
@@ -53,6 +67,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Run tests marked as tool_calling_probe.",
     )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    base_url = config.getoption("openai_base_url")
+    api_key = config.getoption("openai_api_key")
+
+    if base_url is not None:
+        os.environ["OPENAI_BASE_URL"] = base_url
+    if api_key is None:
+        os.environ.setdefault("OPENAI_API_KEY", "")
+    else:
+        os.environ["OPENAI_API_KEY"] = api_key
 
 
 def _resolve_matrix_config_path(pytest_config: pytest.Config) -> Path:
