@@ -48,10 +48,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Run tests marked as sdk_smoke.",
     )
     parser.addoption(
-        "--run-strict-compat",
+        "--run-tool-calling-probe",
         action="store_true",
         default=False,
-        help="Run tests marked as strict_compat.",
+        help="Run tests marked as tool_calling_probe.",
     )
 
 
@@ -126,11 +126,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         skip_sdk_smoke = None
     else:
         skip_sdk_smoke = pytest.mark.skip(reason="Pass --run-sdk-smoke to run SDK smoke tests.")
-
-    if config.getoption("run_strict_compat"):
-        skip_strict_compat = None
+    if config.getoption("run_tool_calling_probe"):
+        skip_tool_calling_probe = None
     else:
-        skip_strict_compat = pytest.mark.skip(reason="Pass --run-strict-compat to run strict compatibility tests.")
+        skip_tool_calling_probe = pytest.mark.skip(
+            reason="Pass --run-tool-calling-probe to run tool calling probe tests."
+        )
 
     for item in items:
         model_name = getattr(getattr(item, "cls", None), "MODEL_NAME", None)
@@ -140,8 +141,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
         if skip_sdk_smoke is not None and "sdk_smoke" in item.keywords:
             item.add_marker(skip_sdk_smoke)
-        if skip_strict_compat is not None and "strict_compat" in item.keywords:
-            item.add_marker(skip_strict_compat)
+        if skip_tool_calling_probe is not None and "tool_calling_probe" in item.keywords:
+            item.add_marker(skip_tool_calling_probe)
         remaining_items.append(item)
 
     if deselected_items:

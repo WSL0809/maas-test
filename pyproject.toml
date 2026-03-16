@@ -15,5 +15,5 @@ dependencies = [
 [tool.pytest.ini_options]
 markers = [
     "sdk_smoke: OpenAI Python SDK smoke coverage that is skipped unless --run-sdk-smoke is set.",
-    "strict_compat: Strict OpenAI-compatible audit coverage that is skipped unless --run-strict-compat is set.",
+    "tool_calling_probe: OpenAI Python SDK tool-calling probe coverage that is skipped unless --run-tool-calling-probe is set.",
 ]

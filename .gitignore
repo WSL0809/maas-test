@@ -2,3 +2,5 @@
 .pytest_cache/
 __pycache__/
 test_failure_artifacts/
+third_party/
+.gitmodules
