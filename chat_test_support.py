@@ -203,6 +203,16 @@ def get_api_key() -> str:
     return os.getenv("OPENAI_API_KEY", "")
 
 
+def build_request_headers() -> dict[str, str]:
+    headers = {
+        "Content-Type": "application/json",
+    }
+    api_key = get_api_key()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
 def resolve_base_url() -> str:
     base_url = os.getenv("OPENAI_BASE_URL") or DEFAULT_API_BASE_URL
     return base_url.rstrip("/") + "/"
@@ -211,10 +221,7 @@ def resolve_base_url() -> str:
 def build_http_client() -> httpx.Client:
     return httpx.Client(
         base_url=resolve_base_url(),
-        headers={
-            "Authorization": f"Bearer {get_api_key()}",
-            "Content-Type": "application/json",
-        },
+        headers=build_request_headers(),
         timeout=httpx.Timeout(60.0),
     )
 
