@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -33,6 +35,23 @@ class MatrixConfig(BaseModel):
 class ParsedAnswer(BaseModel):
     word: str = Field(description="The echoed word.")
     length: int = Field(description="Character count for the echoed word.")
+
+
+@dataclass
+class StreamTextResult:
+    text: str
+    reasoning: str | None
+    chunk_count: int
+    saw_done: bool
+    finish_reasons: list[str]
+
+
+@dataclass
+class StreamToolCallResult:
+    tool_calls: list[dict[str, Any]]
+    chunk_count: int
+    saw_done: bool
+    finish_reasons: list[str]
 
 
 class FailureArtifactRecorder:
@@ -284,21 +303,173 @@ def extract_sse_data(lines: list[str]) -> list[str]:
     return events
 
 
+def collect_stream_text(events: list[str]) -> StreamTextResult:
+    parts: list[str] = []
+    reasoning_parts: list[str] = []
+    finish_reasons: list[str] = []
+    chunk_count = 0
+    saw_done = False
+
+    for event in events:
+        if event == "[DONE]":
+            saw_done = True
+            continue
+
+        chunk_count += 1
+        chunk = json.loads(event)
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+
+        choice = choices[0]
+        if not isinstance(choice, Mapping):
+            continue
+
+        finish_reason = choice.get("finish_reason")
+        if isinstance(finish_reason, str):
+            finish_reasons.append(finish_reason)
+
+        delta = choice.get("delta")
+        if not isinstance(delta, Mapping):
+            continue
+
+        content = delta.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+
+        reasoning = delta.get("reasoning")
+        if isinstance(reasoning, str):
+            reasoning_parts.append(reasoning)
+
+    reasoning_text = "".join(reasoning_parts).strip() or None
+    return StreamTextResult(
+        text="".join(parts).strip(),
+        reasoning=reasoning_text,
+        chunk_count=chunk_count,
+        saw_done=saw_done,
+        finish_reasons=finish_reasons,
+    )
+
+
+def collect_stream_tool_calls(events: list[str]) -> StreamToolCallResult:
+    collected: dict[int, dict[str, Any]] = {}
+    finish_reasons: list[str] = []
+    chunk_count = 0
+    saw_done = False
+
+    for event in events:
+        if event == "[DONE]":
+            saw_done = True
+            continue
+
+        chunk_count += 1
+        chunk = json.loads(event)
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+
+        choice = choices[0]
+        if not isinstance(choice, Mapping):
+            continue
+
+        finish_reason = choice.get("finish_reason")
+        if isinstance(finish_reason, str):
+            finish_reasons.append(finish_reason)
+
+        delta = choice.get("delta")
+        if not isinstance(delta, Mapping):
+            continue
+
+        delta_tool_calls = delta.get("tool_calls")
+        if not isinstance(delta_tool_calls, list):
+            continue
+
+        for partial in delta_tool_calls:
+            if not isinstance(partial, Mapping):
+                continue
+
+            index = partial.get("index", 0)
+            if not isinstance(index, int):
+                index = 0
+
+            current = collected.setdefault(
+                index,
+                {
+                    "id": "",
+                    "type": "function",
+                    "function": {
+                        "name": "",
+                        "arguments": "",
+                    },
+                },
+            )
+
+            partial_id = partial.get("id")
+            if isinstance(partial_id, str) and partial_id:
+                current["id"] = partial_id
+
+            partial_type = partial.get("type")
+            if isinstance(partial_type, str) and partial_type:
+                current["type"] = partial_type
+
+            function = partial.get("function")
+            if not isinstance(function, Mapping):
+                continue
+
+            name = function.get("name")
+            if isinstance(name, str) and name:
+                current["function"]["name"] = name
+
+            arguments = function.get("arguments")
+            if isinstance(arguments, str) and arguments:
+                current["function"]["arguments"] += arguments
+
+    return StreamToolCallResult(
+        tool_calls=[collected[index] for index in sorted(collected)],
+        chunk_count=chunk_count,
+        saw_done=saw_done,
+        finish_reasons=finish_reasons,
+    )
+
+
+def request_response(
+    http_client: httpx.Client,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    recorder: FailureArtifactRecorder | None = None,
+) -> httpx.Response:
+    request_kwargs: dict[str, Any] = {}
+    request_payload = payload or {}
+    if payload is not None:
+        request_kwargs["json"] = payload
+
+    request = http_client.build_request(method, path, **request_kwargs)
+    try:
+        response = http_client.send(request)
+    except Exception as exc:
+        if recorder is not None:
+            recorder.add_http_exchange(request=request, response=None, request_payload=request_payload, exception=exc)
+        raise
+
+    if recorder is not None:
+        recorder.add_http_exchange(request=request, response=response, request_payload=request_payload)
+    return response
+
+
 def request_json(
     http_client: httpx.Client,
     path: str,
     payload: dict[str, Any],
     recorder: FailureArtifactRecorder | None = None,
 ) -> dict[str, Any]:
-    request = http_client.build_request("POST", path, json=payload)
-    try:
-        response = http_client.send(request)
-    except Exception as exc:
-        if recorder is not None:
-            recorder.add_http_exchange(request=request, response=None, request_payload=payload, exception=exc)
-        raise
-    if recorder is not None:
-        recorder.add_http_exchange(request=request, response=response, request_payload=payload)
+    response = request_response(
+        http_client,
+        "POST",
+        path,
+        payload,
+        recorder=recorder,
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
