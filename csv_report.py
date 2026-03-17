@@ -69,6 +69,12 @@ RESULTS_COLUMNS = (
 )
 
 SUMMARY_COLUMNS = (
+    "测试类型",
+    "case 名",
+    "测试内容",
+)
+
+STATS_COLUMNS = (
     "run_id",
     "started_at",
     "suite",
@@ -187,6 +193,7 @@ class CsvReportCollector:
         self.results: list[TestResultRow] = []
         self.results_path: Path | None = None
         self.summary_path: Path | None = None
+        self.stats_path: Path | None = None
         self._result_indexes: dict[str, int] = {}
 
     def record_result(self, item: pytest.Item, report: pytest.TestReport) -> None:
@@ -226,8 +233,10 @@ class CsvReportCollector:
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self.results_path = self.report_dir / "results.csv"
         self.summary_path = self.report_dir / "summary.csv"
+        self.stats_path = self.report_dir / "stats.csv"
         self._write_results()
         self._write_summary()
+        self._write_stats()
 
     def totals(self) -> dict[str, int]:
         counts = {"passed": 0, "failed": 0, "skipped": 0, "total": len(self.results)}
@@ -241,6 +250,7 @@ class CsvReportCollector:
         return [
             f"CSV results: {self.results_path}",
             f"CSV summary: {self.summary_path}",
+            f"CSV stats: {self.stats_path}",
             (
                 "CSV totals: "
                 f"passed={totals['passed']} failed={totals['failed']} "
@@ -259,12 +269,58 @@ class CsvReportCollector:
     def _write_summary(self) -> None:
         assert self.summary_path is not None
         summary_rows = self._build_summary_rows()
+        fieldnames = list(SUMMARY_COLUMNS)
+        for row in summary_rows:
+            for key in row:
+                if key not in fieldnames:
+                    fieldnames.append(key)
         with self.summary_path.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=SUMMARY_COLUMNS)
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(summary_rows)
 
-    def _build_summary_rows(self) -> list[dict[str, str | int]]:
+    def _write_stats(self) -> None:
+        assert self.stats_path is not None
+        stats_rows = self._build_stats_rows()
+        with self.stats_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=STATS_COLUMNS)
+            writer.writeheader()
+            writer.writerows(stats_rows)
+
+    def _build_summary_rows(self) -> list[dict[str, str]]:
+        cases: dict[tuple[str, str, str], dict[str, str]] = {}
+        selected_models = set(self.metadata.selected_models)
+        model_names = sorted(
+            {
+                row.model
+                for row in self.results
+                if row.model != "unknown" and (not selected_models or row.model in selected_models)
+            }
+        )
+
+        for row in self.results:
+            key = (row.suite, row.test_name, row.description)
+            case_row = cases.setdefault(
+                key,
+                {
+                    "测试类型": row.suite,
+                    "case 名": row.test_name,
+                    "测试内容": row.description,
+                },
+            )
+            if row.model in model_names:
+                case_row[f"{row.model}测试结果"] = row.outcome
+
+        summary_rows: list[dict[str, str]] = []
+        for suite, test_name, description in sorted(cases):
+            case_row = cases[(suite, test_name, description)]
+            for model_name in model_names:
+                case_row.setdefault(f"{model_name}测试结果", "not_run")
+            summary_rows.append(case_row)
+
+        return summary_rows
+
+    def _build_stats_rows(self) -> list[dict[str, str | int]]:
         counts: dict[tuple[str, str], dict[str, int]] = defaultdict(
             lambda: {"passed": 0, "failed": 0, "skipped": 0, "total": 0}
         )
@@ -274,12 +330,12 @@ class CsvReportCollector:
             self._increment_counts(counts[("ALL", row.model)], row.outcome)
             self._increment_counts(counts[("ALL", "ALL")], row.outcome)
 
-        summary_rows: list[dict[str, str | int]] = []
+        stats_rows: list[dict[str, str | int]] = []
         for suite, model in sorted(counts):
             bucket = counts[(suite, model)]
             total = bucket["total"]
             pass_rate = "0.00%" if total == 0 else f"{(bucket['passed'] / total) * 100:.2f}%"
-            summary_rows.append(
+            stats_rows.append(
                 {
                     "run_id": self.metadata.run_id,
                     "started_at": self.metadata.started_at,
@@ -293,7 +349,7 @@ class CsvReportCollector:
                 }
             )
 
-        return summary_rows
+        return stats_rows
 
     @staticmethod
     def _increment_counts(bucket: dict[str, int], outcome: str) -> None:

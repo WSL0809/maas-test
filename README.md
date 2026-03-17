@@ -92,9 +92,11 @@ uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_c
 
 CSV 报告输出：
 
-- 传入 `--csv-report-dir=PATH` 后，会在该目录生成 `results.csv` 与 `summary.csv`
+- 传入 `--csv-report-dir=PATH` 后，会在该目录生成 `results.csv`、`summary.csv` 与 `stats.csv`
 - `results.csv` 按“每个实际执行的 pytest item 一行”输出，适合按测试名、模型名、结果筛选
-- `summary.csv` 按 `suite + model` 聚合，同时包含 `ALL + model` 与 `ALL + ALL` 总览行，适合快速看整轮健康度
+- `summary.csv` 按“每个 case 一行”输出，列头格式固定为 `测试类型, case 名, 测试内容, <model>测试结果, ...`，适合直接做多模型对比
+- `summary.csv` 只保留本次显式选中模型的结果列，不会额外生成 `unknown测试结果` 这类内部占位列
+- `stats.csv` 保留按 `suite + model` 聚合的通过率统计，同时包含 `ALL + model` 与 `ALL + ALL` 总览行，适合快速看整轮健康度
 - CSV 只记录实际执行项；因模型过滤而 `deselected` 的项不会单独写入 CSV
 - 失败行只保留短摘要与 `failure_artifact` 路径，完整请求/响应细节继续看 `test_failure_artifacts/`
 
@@ -113,6 +115,13 @@ CSV 报告输出：
 - `failure_artifact`: 失败归档 JSON 路径；成功时为空
 
 `summary.csv` 主要列：
+
+- `测试类型`: 默认等于来源测试文件，例如 `test_chat.py`
+- `case 名`: pytest 测试函数名
+- `测试内容`: 可直接阅读的测试行为说明
+- `<model>测试结果`: 每个模型各占一列，值为 `passed` / `failed` / `skipped` / `not_run`
+
+`stats.csv` 主要列：
 
 - `suite` 与 `model`: 汇总维度
 - `passed` / `failed` / `skipped` / `total`: 对应维度下的统计计数

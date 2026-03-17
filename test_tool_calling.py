@@ -1178,10 +1178,6 @@ class TestGLM5ToolCalling(BaseRelaxedToolChoiceToolCallingTests):
 class TestQwen35ToolCalling(BaseRelaxedToolChoiceToolCallingTests):
     __test__ = True
     MODEL_NAME = "qwen35"
-    SUPPORTS_EDIT_TOOL = False
-    SUPPORTS_REPEATED_SAME_TOOL_CALL = False
-    SUPPORTS_STREAM_TOOL_ROUND_TRIP = False
-    SUPPORTS_TASK_TOOL = False
 
 
 class TestMinimaxM25ToolCalling(BaseRelaxedToolChoiceToolCallingTests):
@@ -1192,7 +1188,6 @@ class TestMinimaxM25ToolCalling(BaseRelaxedToolChoiceToolCallingTests):
 class TestMinimaxM21ToolCalling(BaseRelaxedToolChoiceToolCallingTests):
     __test__ = True
     MODEL_NAME = "minimax-m21"
-    SUPPORTS_REPEATED_SAME_TOOL_CALL = False
 
 
 def collect_stream_tool_calls(

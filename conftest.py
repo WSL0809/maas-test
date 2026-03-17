@@ -200,11 +200,6 @@ def _should_deselect_for_model_capability(item: pytest.Item) -> bool:
     if required_capability is not None and test_class is not None:
         return not bool(getattr(test_class, required_capability, True))
 
-    if original_name == "test_sdk_stream_tool_call_emits_valid_json_arguments":
-        callspec = getattr(item, "callspec", None)
-        if callspec is not None and callspec.params.get("model") == "qwen35":
-            return True
-
     return False
 
 
