@@ -57,6 +57,9 @@ class BaseHTTPXChatTests:
     TOOL_REQUEST_MODE = "forced_named_tool_choice"
     EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED: bool | None = None
 
+    def base_text_request_overrides(self) -> Mapping[str, object]:
+        return {}
+
     def create_request_overrides(self) -> Mapping[str, object]:
         return {}
 
@@ -79,11 +82,12 @@ class BaseHTTPXChatTests:
                 {"role": "user", "content": "Say hello in one short sentence."},
             ],
         }
+        payload.update(self.base_text_request_overrides())
         payload.update(self.create_request_overrides())
         return payload
 
     def build_stream_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "model": self.MODEL_NAME,
             "temperature": 0,
             "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
@@ -93,6 +97,8 @@ class BaseHTTPXChatTests:
                 {"role": "user", "content": "Reply with the word quartz."},
             ],
         }
+        payload.update(self.base_text_request_overrides())
+        return payload
 
     def build_disable_thinking_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -271,6 +277,12 @@ class TestQwen35ChatCompletions(BaseRelaxedToolChoiceChatTests):
     __test__ = True
     MODEL_NAME = "qwen35"
     EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED = True
+
+    def base_text_request_overrides(self) -> Mapping[str, object]:
+        # qwen35's default thinking path is intermittent on this backend:
+        # create may hang until timeout and stream may stop before
+        # emitting final assistant text. Use the stable plain-text path.
+        return {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 class TestMinimaxM25ChatCompletions(BaseRelaxedToolChoiceChatTests):

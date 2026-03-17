@@ -727,9 +727,6 @@ class BaseHTTPXToolCallingTests:
         http_client: httpx.Client,
         failure_artifact_recorder: FailureArtifactRecorder,
     ) -> None:
-        if not self.SUPPORTS_STREAM_TOOL_CALL:
-            pytest.skip("streamed tool calls are not part of the stable passing path for this model")
-
         response, events, raw_text = request_sse(
             http_client,
             CHAT_COMPLETIONS_PATH,
@@ -802,9 +799,6 @@ class BaseHTTPXToolCallingTests:
         http_client: httpx.Client,
         failure_artifact_recorder: FailureArtifactRecorder,
     ) -> None:
-        if not self.SUPPORTS_STREAM_TOOL_ROUND_TRIP:
-            pytest.skip("streamed tool-call round trips are not part of the stable passing path for this model")
-
         initial_payload = self.build_stream_tool_round_trip_payload()
         response, events, raw_text = request_sse(
             http_client,
@@ -863,9 +857,6 @@ class BaseHTTPXToolCallingTests:
         http_client: httpx.Client,
         failure_artifact_recorder: FailureArtifactRecorder,
     ) -> None:
-        if not self.SUPPORTS_REPEATED_SAME_TOOL_CALL:
-            pytest.skip("repeated same-tool calls are not part of the stable passing path for this model")
-
         completion = request_json(
             http_client,
             CHAT_COMPLETIONS_PATH,
@@ -1020,9 +1011,6 @@ class BaseHTTPXToolCallingTests:
         http_client: httpx.Client,
         failure_artifact_recorder: FailureArtifactRecorder,
     ) -> None:
-        if not self.SUPPORTS_EDIT_TOOL:
-            pytest.skip("edit tool is not part of the stable passing path for this model")
-
         completion = request_json(
             http_client,
             CHAT_COMPLETIONS_PATH,
@@ -1069,9 +1057,6 @@ class BaseHTTPXToolCallingTests:
         http_client: httpx.Client,
         failure_artifact_recorder: FailureArtifactRecorder,
     ) -> None:
-        if not self.SUPPORTS_TASK_TOOL:
-            pytest.skip("task tool is not part of the stable passing path for this model")
-
         completion = request_json(
             http_client,
             CHAT_COMPLETIONS_PATH,
@@ -1358,9 +1343,6 @@ def test_sdk_stream_tool_call_emits_valid_json_arguments(
     model: str,
     failure_artifact_recorder: FailureArtifactRecorder,
 ) -> None:
-    if model == "qwen35":
-        pytest.skip("streamed SDK tool calls are not part of the stable passing path for qwen35")
-
     request_payload = {
         "model": model,
         "temperature": 0,

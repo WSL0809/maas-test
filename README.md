@@ -6,8 +6,8 @@
 
 - 基础 chat 套件：覆盖基础 create、stream、stream + `enable_thinking=false`、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
-- tool calling 套件：覆盖 httpx 工具调用主路径与代表性 stream 主路径，外加少量显式开启的 SDK probe
-- SDK smoke 套件：少量官方 Python SDK 接入验证，默认跳过
+- tool calling 套件：覆盖 httpx 工具调用主路径与代表性 stream 主路径，并默认包含 SDK probe
+- SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
 
 ## 运行前准备
 
@@ -34,49 +34,89 @@ uv sync
 运行默认主套件：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py
 ```
 
 显式指定连接地址：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
 ```
 
 运行 SDK smoke 套件：
 
 ```bash
-uv run pytest -q test_chat_sdk_smoke.py --run-sdk-smoke
+uv run pytest -q test_chat_sdk_smoke.py
 ```
 
 运行 tool calling probe 套件：
 
 ```bash
-uv run pytest -q test_tool_calling.py --run-tool-calling-probe
+uv run pytest -q test_tool_calling.py -m tool_calling_probe
 ```
 
-运行默认主套件 + SDK smoke：
+只运行默认非 probe 的 tool calling 套件：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --run-sdk-smoke
+uv run pytest -q test_tool_calling.py -m "not tool_calling_probe"
 ```
 
 运行指定模型：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
 ```
 
 也可以通过环境变量一次指定多个模型：
 
 ```bash
-OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py
+OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py
+```
+
+输出可读 CSV 报告：
+
+```bash
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --csv-report-dir=reports
+```
+
+运行指定模型并输出 CSV：
+
+```bash
+uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
 ```
 
 失败用例归档：
 
 - 测试失败时，会把该用例的请求与响应详细记录到 `test_failure_artifacts/`
 - 归档内容包括测试名、模型名、请求 URL、请求头、请求体、响应状态码、响应头、响应体，以及异常信息
+
+CSV 报告输出：
+
+- 传入 `--csv-report-dir=PATH` 后，会在该目录生成 `results.csv` 与 `summary.csv`
+- `results.csv` 按“每个实际执行的 pytest item 一行”输出，适合按测试名、模型名、结果筛选
+- `summary.csv` 按 `suite + model` 聚合，同时包含 `ALL + model` 与 `ALL + ALL` 总览行，适合快速看整轮健康度
+- CSV 只记录实际执行项；因模型过滤而 `deselected` 的项不会单独写入 CSV
+- 失败行只保留短摘要与 `failure_artifact` 路径，完整请求/响应细节继续看 `test_failure_artifacts/`
+
+`results.csv` 主要列：
+
+- `suite`: 来源测试文件，例如 `test_chat.py`
+- `test_name`: 原始 pytest 测试函数名
+- `description`: 可直接阅读的测试行为说明
+- `nodeid`: 完整 pytest 节点 ID，便于精确定位
+- `model`: 当前执行项对应的模型名；不依赖模型时为 `unknown`
+- `outcome`: `passed` / `failed` / `skipped`
+- `duration_seconds`: 该执行项耗时
+- `base_url`: 当前请求使用的 OpenAI-compatible endpoint
+- `selected_models`: 本次运行实际选中的模型列表，逗号分隔
+- `failure_summary`: 单行失败或跳过摘要
+- `failure_artifact`: 失败归档 JSON 路径；成功时为空
+
+`summary.csv` 主要列：
+
+- `suite` 与 `model`: 汇总维度
+- `passed` / `failed` / `skipped` / `total`: 对应维度下的统计计数
+- `pass_rate`: 通过率，按 `passed / total` 计算
 
 ## 基础 Chat 套件
 
@@ -124,13 +164,13 @@ OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py test_context_l
 
 ### 模型矩阵
 
-| 模型类 | tools 策略 | `enable_thinking=false` 行为 | StructuredOutput 策略 |
-| --- | --- | --- | --- |
-| `TestKimiK25ChatCompletions` | 强制命名 `tool_choice` | 请求可接受，但 `reasoning` 仍可能返回文本 | 强制命名 `StructuredOutput` 工具 |
-| `TestGLM5ChatCompletions` | `tool_choice="auto"` | 请求可接受，且当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
-| `TestQwen35ChatCompletions` | `tool_choice="auto"` | 请求可接受，且当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
-| `TestMinimaxM25ChatCompletions` | `tool_choice="auto"` | 请求可接受，但 `reasoning` 仍可能返回文本 | `tool_choice="auto"` |
-| `TestMinimaxM21ChatCompletions` | `tool_choice="auto"` | 请求可接受，但 `reasoning` 仍可能返回文本 | `tool_choice="auto"` |
+| 模型类 | 基础 create/stream 请求 | tools 策略 | `enable_thinking=false` 行为 | StructuredOutput 策略 |
+| --- | --- | --- | --- | --- |
+| `TestKimiK25ChatCompletions` | 默认请求 | 强制命名 `tool_choice` | 请求可接受，但 `reasoning` 仍可能返回文本 | 强制命名 `StructuredOutput` 工具 |
+| `TestGLM5ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受，且当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
+| `TestQwen35ChatCompletions` | 基础文本请求默认附带 `chat_template_kwargs.enable_thinking=false` | `tool_choice="auto"` | 请求可接受，且当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
+| `TestMinimaxM25ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受，但 `reasoning` 仍可能返回文本 | `tool_choice="auto"` |
+| `TestMinimaxM21ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受，但 `reasoning` 仍可能返回文本 | `tool_choice="auto"` |
 
 如果命令行显式传了 `--chat-model`，基础 chat 套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
 
@@ -142,7 +182,7 @@ OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py test_context_l
 | --- | --- | --- | --- | --- | --- |
 | `kimi-k25` | 正常 | 请求可接受，但 `reasoning` 仍可能返回文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop` |
 | `glm5` | 正常 | 请求可接受，且当前稳定返回 `reasoning=null` | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致 |
-| `qwen35` | 正常 | 请求可接受，且当前稳定返回 `reasoning=null` | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 `glm5` 行为接近 |
+| `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定返回 `reasoning=null` | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path |
 | `minimax-m25` | 正常 | 请求可接受，但 `reasoning` 仍可能返回文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径 |
 | `minimax-m21` | 正常 | 请求可接受，但 `reasoning` 仍可能返回文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致 |
 
@@ -169,7 +209,7 @@ context length 套件位于 [test_context_length.py](/Users/wangshilong/Download
 
 ## SDK Smoke 套件
 
-SDK smoke 套件位于 [test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maas-test/test_chat_sdk_smoke.py)，默认跳过，只在显式传入 `--run-sdk-smoke` 时运行。
+SDK smoke 套件位于 [test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maas-test/test_chat_sdk_smoke.py)，默认参与主执行路径；旧的 `--run-sdk-smoke` 仅作为兼容参数保留，不再影响收集结果。
 
 ### 1. SDK 基础调用
 
@@ -188,7 +228,7 @@ SDK smoke 套件位于 [test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maa
 tool calling 套件位于 [test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/test_tool_calling.py)。这个文件包含两部分：
 
 - 默认运行的 httpx 工具调用主套件（包含代表性 stream 覆盖）
-- 仅在显式传入 `--run-tool-calling-probe` 时运行的 SDK probe
+- 同样默认运行的 SDK probe；如果只想单独筛选 probe，可使用 `-m tool_calling_probe`
 
 ### 默认 httpx 工具调用行为
 
@@ -286,11 +326,11 @@ tool calling 套件位于 [test_tool_calling.py](/Users/wangshilong/Downloads/ma
 - 在已有 `assistant + tool` 历史后追加新的 `user` 追问
 - 检查服务是否仍能返回稳定的 assistant 文本
 
-当前模型矩阵下，tool calling 套件不包含 `apply_patch`，因为 OpenCode 对这组模型更真实的默认路径仍是 `edit` / `write`。其中 `edit` 和 `task` 对 `qwen35` 不在稳定 passing path 中，因此该模型会跳过这两项，而不是强行统一请求形状。新增的“同响应内连续两次同名 weather tool call”用例对 `kimi-k25`、`qwen35` 和 `minimax-m21` 也不在稳定 passing path 中，因此这三个模型会显式跳过该测试。streamed weather tool call 及其 round-trip 默认作为主套件的一部分运行；其中 `qwen35` 的 streamed tool-call round-trip 第二轮当前只稳定返回 reasoning、不稳定产出最终文本，因此会显式跳过该用例。如果某个模型经过 live 验证后不稳定，应优先在模型类里显式关闭对应 stream 用例，而不是让默认主套件随机失败。
+当前模型矩阵下，tool calling 套件不包含 `apply_patch`，因为 OpenCode 对这组模型更真实的默认路径仍是 `edit` / `write`。其中 `edit` 和 `task` 对 `qwen35` 不在稳定 passing path 中；“同响应内连续两次同名 weather tool call”对 `kimi-k25`、`qwen35` 和 `minimax-m21` 不在稳定 passing path 中；`qwen35` 的 streamed tool-call round-trip 第二轮当前也不稳定产出最终文本。这些不稳定组合会在收集阶段直接裁剪，不会进入默认结果里的 `skipped`。如果某个模型经过 live 验证后不稳定，应优先在模型类里显式关闭对应能力，并让收集阶段排除该组合，而不是让默认主套件随机失败或产生 `skip`。
 
 ### SDK Probe
 
-下面这些 probe 用例默认跳过，只在显式传入 `--run-tool-calling-probe` 时运行。
+下面这些 probe 用例默认运行；如果只想单独执行 probe，可使用 `-m tool_calling_probe`。
 
 ### 1. 单工具非流式调用
 
@@ -303,7 +343,7 @@ tool calling 套件位于 [test_tool_calling.py](/Users/wangshilong/Downloads/ma
 `test_sdk_stream_tool_call_emits_valid_json_arguments`
 
 验证官方 Python SDK 的流式 tool call chunk 聚合后是否仍能组成合法 JSON 参数。
-其中 `qwen35` 的 streamed tool-call 不在稳定 passing path 中，因此会跳过。
+其中 `qwen35` 的 streamed tool-call 不在稳定 passing path 中，因此该组合会在收集阶段裁剪，不进入默认结果。
 
 ### 3. 多工具请求
 

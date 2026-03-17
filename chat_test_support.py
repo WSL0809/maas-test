@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_MAX_COMPLETION_TOKENS = 32000
+DEFAULT_MAX_COMPLETION_TOKENS = 16000
 DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
 CHAT_COMPLETIONS_PATH = "chat/completions"
 ROOT_DIR = Path(__file__).resolve().parent

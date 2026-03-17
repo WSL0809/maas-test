@@ -17,12 +17,23 @@ from chat_test_support import (
     build_sdk_client,
     load_dotenv,
     load_matrix_config,
+    resolve_base_url,
     split_model_names,
     unique_model_names,
 )
+from csv_report import CsvReportCollector, build_run_metadata, emit_terminal_summary
 
 
 load_dotenv()
+
+
+MODEL_CAPABILITY_GATES: dict[str, str] = {
+    "test_stream_returns_tool_call": "SUPPORTS_STREAM_TOOL_CALL",
+    "test_stream_tool_call_round_trip_returns_final_assistant_message": "SUPPORTS_STREAM_TOOL_ROUND_TRIP",
+    "test_create_returns_repeated_same_tool_calls": "SUPPORTS_REPEATED_SAME_TOOL_CALL",
+    "test_edit_tool_returns_valid_arguments": "SUPPORTS_EDIT_TOOL",
+    "test_task_tool_returns_valid_arguments": "SUPPORTS_TASK_TOOL",
+}
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -59,13 +70,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-sdk-smoke",
         action="store_true",
         default=False,
-        help="Run tests marked as sdk_smoke.",
+        help="Deprecated compatibility flag. Tests marked as sdk_smoke run by default.",
     )
     parser.addoption(
         "--run-tool-calling-probe",
         action="store_true",
         default=False,
-        help="Run tests marked as tool_calling_probe.",
+        help="Deprecated compatibility flag. Tests marked as tool_calling_probe run by default.",
+    )
+    parser.addoption(
+        "--csv-report-dir",
+        action="store",
+        default=None,
+        help="Write readable CSV test reports to the given directory.",
     )
 
 
@@ -79,6 +96,14 @@ def pytest_configure(config: pytest.Config) -> None:
         os.environ.setdefault("OPENAI_API_KEY", "")
     else:
         os.environ["OPENAI_API_KEY"] = api_key
+
+    report_dir = config.getoption("csv_report_dir")
+    if report_dir:
+        selected_models, _ = _resolve_target_models(config)
+        metadata = build_run_metadata(resolve_base_url(), selected_models)
+        setattr(config, "_csv_report_collector", CsvReportCollector(Path(report_dir).expanduser(), metadata))
+    else:
+        setattr(config, "_csv_report_collector", None)
 
 
 def _resolve_matrix_config_path(pytest_config: pytest.Config) -> Path:
@@ -148,16 +173,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     remaining_items: list[pytest.Item] = []
     deselected_items: list[pytest.Item] = []
-    if config.getoption("run_sdk_smoke"):
-        skip_sdk_smoke = None
-    else:
-        skip_sdk_smoke = pytest.mark.skip(reason="Pass --run-sdk-smoke to run SDK smoke tests.")
-    if config.getoption("run_tool_calling_probe"):
-        skip_tool_calling_probe = None
-    else:
-        skip_tool_calling_probe = pytest.mark.skip(
-            reason="Pass --run-tool-calling-probe to run tool calling probe tests."
-        )
 
     for item in items:
         model_name = getattr(getattr(item, "cls", None), "MODEL_NAME", None)
@@ -165,10 +180,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             deselected_items.append(item)
             continue
 
-        if skip_sdk_smoke is not None and "sdk_smoke" in item.keywords:
-            item.add_marker(skip_sdk_smoke)
-        if skip_tool_calling_probe is not None and "tool_calling_probe" in item.keywords:
-            item.add_marker(skip_tool_calling_probe)
+        if _should_deselect_for_model_capability(item):
+            deselected_items.append(item)
+            continue
+
         remaining_items.append(item)
 
     if deselected_items:
@@ -177,17 +192,48 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     else:
         items[:] = remaining_items
 
+
+def _should_deselect_for_model_capability(item: pytest.Item) -> bool:
+    original_name = getattr(item, "originalname", item.name)
+    required_capability = MODEL_CAPABILITY_GATES.get(original_name)
+    test_class = getattr(item, "cls", None)
+    if required_capability is not None and test_class is not None:
+        return not bool(getattr(test_class, required_capability, True))
+
+    if original_name == "test_sdk_stream_tool_call_emits_valid_json_arguments":
+        callspec = getattr(item, "callspec", None)
+        if callspec is not None and callspec.params.get("model") == "qwen35":
+            return True
+
+    return False
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
     outcome = yield
     report = outcome.get_result()
 
-    if report.when != "call" or report.passed:
-        return
+    if report.when == "call" and report.failed:
+        recorder = getattr(item, "_failure_artifact_recorder", None)
+        if recorder is not None and recorder.exchanges:
+            artifact_path = recorder.write_failure_artifact(report.longreprtext)
+            setattr(item, "_failure_artifact_path", artifact_path)
+            report.sections.append(("failure artifact", str(artifact_path)))
 
-    recorder = getattr(item, "_failure_artifact_recorder", None)
-    if recorder is None or not recorder.exchanges:
-        return
+    collector = getattr(item.config, "_csv_report_collector", None)
+    if collector is not None:
+        collector.record_result(item, report)
 
-    artifact_path = recorder.write_failure_artifact(report.longreprtext)
-    report.sections.append(("failure artifact", str(artifact_path)))
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    collector = getattr(session.config, "_csv_report_collector", None)
+    if collector is None:
+        return
+    collector.write()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus: int, config: pytest.Config) -> None:
+    collector = getattr(config, "_csv_report_collector", None)
+    if collector is None:
+        return
+    emit_terminal_summary(terminalreporter, collector)
