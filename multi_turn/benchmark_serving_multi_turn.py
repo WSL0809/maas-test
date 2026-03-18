@@ -28,6 +28,7 @@ from collections import Counter, deque
 from datetime import datetime
 from enum import Enum
 from http import HTTPStatus
+from pathlib import Path
 from statistics import mean
 from typing import Any, NamedTuple
 
@@ -47,6 +48,13 @@ def normalize_base_url(url: str) -> str:
     if url.endswith("/v1"):
         url = url[: -len("/v1")].rstrip("/")
     return url
+
+
+def default_output_file_path(input_file: str) -> str:
+    input_path = Path(input_file)
+    if input_path.suffix:
+        return str(input_path.with_name(f"{input_path.stem}_result{input_path.suffix}"))
+    return str(input_path.with_name(f"{input_path.name}_result.json"))
 
 
 class Color(Enum):
@@ -1805,7 +1813,8 @@ async def main() -> None:
         "--output-file",
         type=str,
         default=None,
-        help="Output JSON file containing conversations with updated assistant answers",
+        help="Output JSON file containing conversations with updated assistant answers. "
+        "Defaults to '{input_file}_result.json'.",
     )
 
     parser.add_argument(
@@ -1996,6 +2005,9 @@ async def main() -> None:
         logger.info(
             f"{Color.BLUE}Normalized --url from {original_url!r} to {args.url!r}{Color.RESET}"
         )
+
+    if args.output_file is None:
+        args.output_file = default_output_file_path(args.input_file)
 
     logger.info(args)
 

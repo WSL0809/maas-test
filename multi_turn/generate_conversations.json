@@ -1,0 +1,30 @@
+{
+  "filetype": "generate_conversations",
+  "num_conversations": 1000,
+  "text_files": ["pg1184.txt"],
+  "print_stats": false,
+  "prompt_input": {
+    "num_turns": {
+      "distribution": "constant",
+      "value": 10
+    },
+    "common_prefix_num_tokens": {
+      "distribution": "constant",
+      "value": 0
+    },
+    "prefix_num_tokens": {
+      "distribution": "constant",
+      "value": 0
+    },
+    "num_tokens": {
+      "distribution": "constant",
+      "value": 200
+    }
+  },
+  "prompt_output": {
+    "num_tokens": {
+      "distribution": "constant",
+      "value": 100
+    }
+  }
+}
