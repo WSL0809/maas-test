@@ -5,6 +5,7 @@
 #   "aiohttp>=3.10",
 #   "numpy>=1.24",
 #   "pandas>=2.0.0",
+#   "tiktoken>=0.7",
 #   "transformers>=4.46",
 #   "xlsxwriter>=3.2.1",
 #   "tqdm>=4.66",
@@ -39,6 +40,13 @@ from transformers import AutoTokenizer  # type: ignore
 NUM_TOKENS_FROM_DATASET = 0
 TERM_SIGNAL = None
 TEXT_SEPARATOR = "-" * 100
+
+
+def normalize_base_url(url: str) -> str:
+    url = url.strip().rstrip("/")
+    if url.endswith("/v1"):
+        url = url[: -len("/v1")].rstrip("/")
+    return url
 
 
 class Color(Enum):
@@ -1372,7 +1380,8 @@ def get_client_config(
         raise ValueError("Request timeout must be a positive number")
 
     # Arguments for API requests
-    chat_url = f"{args.url}/v1/chat/completions"
+    base_url = normalize_base_url(args.url)
+    chat_url = f"{base_url}/v1/chat/completions"
     model_name = args.served_model_name if args.served_model_name else args.model
 
     req_args = RequestArgs(
@@ -1748,6 +1757,7 @@ def process_statistics(
 
 
 async def get_server_info(url: str) -> None:
+    url = normalize_base_url(url)
     logger.info(f"{Color.BLUE}Collecting information from server: {url}{Color.RESET}")
     async with aiohttp.ClientSession() as session:
         # Get server version (not mandatory, "version" endpoint may not exist)
@@ -1822,7 +1832,16 @@ async def main() -> None:
         "--url",
         type=str,
         default="http://localhost:8000",
-        help="Base URL for the LLM API server",
+        help="Base URL for the LLM API server. Accepts either http://host:port "
+        "or http://host:port/v1 (both will work).",
+    )
+
+    parser.add_argument(
+        "--trust-remote-code",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to pass trust_remote_code=True when loading tokenizer from HuggingFace "
+        "(default: enabled).",
     )
 
     parser.add_argument(
@@ -1971,6 +1990,13 @@ async def main() -> None:
 
     args = parser.parse_args()
 
+    original_url = args.url
+    args.url = normalize_base_url(args.url)
+    if args.url != original_url:
+        logger.info(
+            f"{Color.BLUE}Normalized --url from {original_url!r} to {args.url!r}{Color.RESET}"
+        )
+
     logger.info(args)
 
     logger.info(f"{Color.GREEN}Input parameters:{Color.RESET}")
@@ -2003,7 +2029,7 @@ async def main() -> None:
 
     except Exception:
         raise ValueError(
-            f"Invalid --warmup-percentage={args.warmup_percentage}"
+            f"Invalid --warmup-percentages={args.warmup_percentages}"
         ) from None
 
     # Set global seeds for main process
@@ -2012,7 +2038,9 @@ async def main() -> None:
 
     logger.info("Loading tokenizer")
     try:
-        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model, trust_remote_code=args.trust_remote_code
+        )
     except Exception as e:
         logger.warning(f"Failed to load tokenizer for {args.model}: {e}")
         logger.info("Falling back to gpt2 tokenizer")
