@@ -5,3 +5,4 @@ test_failure_artifacts/
 reports/
 third_party/
 .gitmodules
+.alma-snapshots

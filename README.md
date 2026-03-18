@@ -129,7 +129,7 @@ CSV 报告输出：
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [test_chat.py](/Users/wangshilong/Downloads/maas-test/test_chat.py)。它只保留非工具调用主路径：基础 create、基础 SSE stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [test_chat.py](/Users/wangshilong/Downloads/maas-test/test_chat.py)。它只保留非工具调用主路径：基础 create、基础 SSE stream、图片 content parts 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -147,6 +147,22 @@ CSV 报告输出：
 - 检查是否收到至少一个 `data:` JSON chunk
 - 检查是否存在 `[DONE]` 终止事件
 - 检查拼接后的 `delta.content` 是否能组成正确答案
+
+`test_create_accepts_image_content_parts`
+
+- 验证 `/chat/completions` 接受 OpenAI-compatible 的 content parts 输入（`text` + `image_url`）
+- 图片使用内置 `data:image/png;base64,...`，避免依赖外部网络
+- 检查返回对象是否是正常的 `chat.completion`
+- 检查 assistant 消息内容是否非空
+- 检查 usage 统计是否返回
+
+`test_stream_accepts_image_content_parts`
+
+- 验证 `stream=true` 时也能接受 content parts 输入（`text` + `image_url`）
+- 检查 `Content-Type` 是否为 `text/event-stream`
+- 检查是否收到至少一个 `data:` JSON chunk
+- 检查是否存在 `[DONE]` 终止事件
+- 检查拼接后的 `delta.content` 是否非空，并包含提示中的 `quartz`
 
 `test_create_accepts_chat_template_kwargs_enable_thinking_false`
 

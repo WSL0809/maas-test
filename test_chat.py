@@ -14,6 +14,11 @@ from chat_test_support import (
     request_sse,
 )
 
+TINY_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2k0AAAAASUVORK5CYII="
+)
+
 
 def build_structured_output_tool_definition() -> list[dict[str, object]]:
     return [
@@ -100,6 +105,46 @@ class BaseHTTPXChatTests:
         payload.update(self.base_text_request_overrides())
         return payload
 
+    def build_image_create_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Reply with the word quartz."},
+                        {"type": "image_url", "image_url": {"url": TINY_PNG_DATA_URL}},
+                    ],
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_image_stream_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Reply with the word quartz."},
+                        {"type": "image_url", "image_url": {"url": TINY_PNG_DATA_URL}},
+                    ],
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        return payload
+
     def build_disable_thinking_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
             "model": self.MODEL_NAME,
@@ -171,6 +216,47 @@ class BaseHTTPXChatTests:
             http_client,
             CHAT_COMPLETIONS_PATH,
             self.build_stream_payload(),
+            recorder=failure_artifact_recorder,
+        )
+        stream_result = collect_stream_text(events)
+
+        assert response.status_code == 200, raw_text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert stream_result.chunk_count > 0
+        assert stream_result.saw_done
+        assert stream_result.text
+        assert "quartz" in stream_result.text.lower()
+
+    def test_create_accepts_image_content_parts(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_image_create_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert isinstance(message["content"], str)
+        assert message["content"].strip()
+        assert completion["usage"]["total_tokens"] > 0
+
+    def test_stream_accepts_image_content_parts(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        response, events, raw_text = request_sse(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_image_stream_payload(),
             recorder=failure_artifact_recorder,
         )
         stream_result = collect_stream_text(events)
