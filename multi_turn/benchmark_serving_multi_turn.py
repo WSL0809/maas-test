@@ -28,7 +28,6 @@ from collections import Counter, deque
 from datetime import datetime
 from enum import Enum
 from http import HTTPStatus
-from pathlib import Path
 from statistics import mean
 from typing import Any, NamedTuple
 
@@ -48,13 +47,6 @@ def normalize_base_url(url: str) -> str:
     if url.endswith("/v1"):
         url = url[: -len("/v1")].rstrip("/")
     return url
-
-
-def default_output_file_path(input_file: str) -> str:
-    input_path = Path(input_file)
-    if input_path.suffix:
-        return str(input_path.with_name(f"{input_path.stem}_result{input_path.suffix}"))
-    return str(input_path.with_name(f"{input_path.name}_result.json"))
 
 
 class Color(Enum):
@@ -780,6 +772,17 @@ async def send_request(
     first_chunk = ""
     generated_text = ""
 
+    def extract_stream_fragment(delta: Any) -> str | None:
+        if not isinstance(delta, dict):
+            return None
+        # OpenAI-compatible servers generally stream tokens under `delta.content`,
+        # but some models/providers use other fields (e.g. reasoning_content).
+        for key in ("content", "reasoning_content", "text"):
+            value = delta.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
+
     start_time: int = time.perf_counter_ns()
     most_recent_timestamp: int = start_time
 
@@ -807,18 +810,20 @@ async def send_request(
                     data = json.loads(chunk)
 
                     # Delta is the new content/text/data
-                    delta = data["choices"][0]["delta"]
-                    if delta.get("content", None):
+                    choice0 = data["choices"][0]
+                    delta = choice0.get("delta", {})
+                    fragment = extract_stream_fragment(delta)
+                    if fragment is not None:
                         if ttft is None:
                             # First token
                             first_token_time = time.perf_counter_ns()
                             ttft = first_token_time - start_time
-                            first_chunk = delta["content"]
+                            first_chunk = fragment
                         else:
                             # Decoding phase
                             chunk_delay.append(timestamp - most_recent_timestamp)
 
-                        generated_text += delta["content"]
+                        generated_text += fragment
 
                     most_recent_timestamp = timestamp
         else:
@@ -1600,6 +1605,7 @@ def process_statistics(
     verbose: bool,
     gen_conv_args: GenConvArgs | None = None,
     excel_output: bool = False,
+    csv_output: str | None = "result.csv",
     warmup_runtime_sec: float | None = None,
 ) -> None:
     if len(client_metrics) == 0:
@@ -1625,6 +1631,10 @@ def process_statistics(
     # Final raw data should be sorted by time
     raw_data = raw_data.sort_values(by=["start_time_ms"])
     raw_data["end_time_ms"] = raw_data["start_time_ms"] + raw_data["latency_ms"]
+
+    if csv_output:
+        raw_data.to_csv(csv_output, index=False)
+        logger.info(f"{Color.GREEN}Wrote CSV results: {csv_output}{Color.RESET}")
 
     percentiles = [0.25, 0.5, 0.75, 0.9]
 
@@ -1814,7 +1824,14 @@ async def main() -> None:
         type=str,
         default=None,
         help="Output JSON file containing conversations with updated assistant answers. "
-        "Defaults to '{input_file}_result.json'.",
+        "If not set, no JSON file is written.",
+    )
+
+    parser.add_argument(
+        "--csv-output",
+        type=str,
+        default="result.csv",
+        help="Write per-request metrics to a CSV file (default: result.csv).",
     )
 
     parser.add_argument(
@@ -2005,9 +2022,6 @@ async def main() -> None:
         logger.info(
             f"{Color.BLUE}Normalized --url from {original_url!r} to {args.url!r}{Color.RESET}"
         )
-
-    if args.output_file is None:
-        args.output_file = default_output_file_path(args.input_file)
 
     logger.info(args)
 
@@ -2200,6 +2214,7 @@ async def main() -> None:
         verbose=args.verbose,
         gen_conv_args=gen_conv_args,
         excel_output=args.excel_output,
+        csv_output=args.csv_output,
         warmup_runtime_sec=warmup_runtime_sec,
     )
 
