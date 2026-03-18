@@ -5,6 +5,7 @@
 This repository is intentionally small and centered on live API validation.
 
 - [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py): the base `httpx` chat suite for create, stream, and StructuredOutput coverage.
+- [tests/test_api_compatibility.py](/Users/wangshilong/Downloads/maas-test/tests/test_api_compatibility.py): the OpenAI-compatible API suite for `/v1/chat/completions`, `/v1/completions`, `/v1/models`, usage arithmetic, and error-shape checks.
 - [tests/test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/tests/test_tool_calling.py): the dataset-driven tool-calling suite.
 - [tests/test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat_sdk_smoke.py): small OpenAI Python SDK smoke suite.
 - [tests/chat_test_support.py](/Users/wangshilong/Downloads/maas-test/tests/chat_test_support.py): shared test client, request, SSE parsing, and failure-artifact helpers.
@@ -27,10 +28,10 @@ This repository is intentionally small and centered on live API validation.
 ## Build, Test, and Development Commands
 
 - `uv sync`: install and lock the project environment from `pyproject.toml` and `uv.lock`.
-- `uv run pytest -q tests/test_chat.py tests/test_tool_calling.py`: run the default per-model optimized live suite.
-- `uv run pytest -q tests/test_chat.py tests/test_tool_calling.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25`: run the optimized suite against a chosen model matrix.
+- `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py`: run the default per-model optimized live suite.
+- `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25`: run the optimized suite against a chosen model matrix.
 - `uv run pytest -q tests/test_chat_sdk_smoke.py --run-sdk-smoke`: run the OpenAI SDK smoke suite.
-- `uv run pytest -q tests/test_chat.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --run-sdk-smoke`: run the default suite plus SDK smoke.
+- `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --run-sdk-smoke`: run the default suite plus SDK smoke.
 
 ## Coding Style & Naming Conventions
 

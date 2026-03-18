@@ -2,9 +2,10 @@
 
 这是一个结合 `httpx` 与 OpenAI Python SDK 的实时集成测试仓库，用来验证 vLLM 提供的 OpenAI-compatible chat completion 接口是否按预期工作。
 
-仓库现在分成四类默认测试，外加一条显式开启的 K2 verifier 通道：
+仓库现在分成五类默认测试，外加一条显式开启的 K2 verifier 通道：
 
 - 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、JSON Mode、StructuredOutput
+- API compatibility 套件：覆盖 `/v1/chat/completions`、`/v1/completions`、`/v1/models`、usage 统计，以及常见错误码的 OpenAI-compatible 形状
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
 - tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，以及显式的多步链式 tool loop 回填路径；当前包含单工具、同消息重复 tool call、同消息并行多工具、多步链式 tool loop 等场景
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
@@ -44,13 +45,13 @@ uv sync
 运行默认主套件：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
 显式指定连接地址：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
 ```
 
 运行 SDK smoke 套件：
@@ -64,25 +65,25 @@ uv run pytest -q tests/test_chat_sdk_smoke.py
 运行指定模型：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
 ```
 
 也可以通过环境变量一次指定多个模型：
 
 ```bash
-OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
+OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
 输出可读 CSV 报告：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --csv-report-dir=reports
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --csv-report-dir=reports
 ```
 
 运行指定模型并输出 CSV：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
 ```
 
 失败用例归档：
@@ -374,6 +375,67 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 | `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
 | `minimax-m25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
 | `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+
+## API Compatibility 套件
+
+API compatibility 套件位于 [tests/test_api_compatibility.py](/Users/wangshilong/Downloads/maas-test/tests/test_api_compatibility.py)。这个文件把 H 场景里的 H1-H5 固化成可重复执行的 live pytest 用例：H1/H4 走 `/v1/chat/completions`，H2/H4 走 `/v1/completions`，H3 校验 `/v1/models`，H5 覆盖稳定可复现的 `400/401/404`，并补一个轻量 `429` 探测与一个已知 `500` 回归探针。
+
+### 测试行为
+
+`test_chat_completions_returns_openai_shape_and_usage`
+
+- 对齐 H1 与 H4 的 chat 路径：验证 `/v1/chat/completions` 基础请求与返回形状兼容 OpenAI
+- 检查返回对象是否为 `chat.completion`
+- 检查 assistant 文本是否非空
+- 检查 `usage.prompt_tokens + usage.completion_tokens == usage.total_tokens`
+
+`test_raw_completions_returns_openai_shape_and_usage`
+
+- 对齐 H2 与 H4 的 raw completions 路径：验证 `/v1/completions` 可接受传统 prompt 请求
+- 检查返回对象是否为 `text_completion`
+- 检查 `choices[0].text` 是否非空
+- 检查 `usage.prompt_tokens + usage.completion_tokens == usage.total_tokens`
+
+`test_models_endpoint_lists_selected_model`
+
+- 对齐 H3：验证 `/v1/models` 能列出当前选中模型
+- 检查顶层对象是否为 `list`
+- 检查对应模型卡至少包含 `id`、`created` 与 `owned_by` 等元信息
+
+`test_chat_completions_bad_request_returns_openai_error_shape`
+
+- 对齐 H5 的 `400 Bad Request`
+- 发送 `messages` 类型错误的请求，要求服务返回 `400`
+- 检查顶层 `error.message` / `error.type` 形状符合 OpenAI 风格
+
+`test_chat_completions_invalid_api_key_returns_openai_error_shape`
+
+- 对齐 H5 的 `401 Unauthorized`
+- 使用无效 Bearer Token 重发同一请求
+- 检查响应为 `401`，且顶层 `error` 对象形状正常
+
+`test_unknown_route_returns_openai_error_shape`
+
+- 对齐 H5 的 `404 Not Found`
+- 请求一个不存在的 API 路径
+- 检查响应为 `404`，且顶层 `error` 对象形状正常
+
+`test_light_rate_limit_probe_returns_only_200_or_429`
+
+- 对齐 H5 的 `429 Too Many Requests` 探测
+- 对 `glm5` 发起轻量并发请求，观察服务是否出现限流
+- 如果出现 `429`，要求错误体仍保持 OpenAI-compatible 形状；如果全部为 `200` 也视为本轮探测通过
+
+`test_forced_named_tool_choice_returns_openai_error_shape_when_upstream_500_reproduces`
+
+- 对齐 H5 的 `500 Internal Server Error` 回归探针
+- 使用当前已知可能触发 `minimax-m25` 上游 `500 upstream_error` 的 forced named `tool_choice` 路径
+- 若本轮成功复现 `500`，则要求顶层 `error` 对象形状正常；若后端已修复、不再返回 `500`，该用例会 `skip`
+
+### 说明
+
+- `429` 与 `500` 都带有环境相关性：前者依赖当前限流阈值，后者依赖后端是否仍保留已知错误路径
+- 因此这两个用例在设计上更接近“探测 / 回归探针”，而不是每轮都必须硬触发错误码
 
 ## Context Length 套件
 

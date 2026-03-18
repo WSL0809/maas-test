@@ -1,5 +1,83 @@
 # Test Run Commands
 
+## H1 Chat Completions 兼容
+
+- 对应用例：
+  - `tests/test_api_compatibility.py::test_chat_completions_returns_openai_shape_and_usage`
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_api_compatibility.py -k test_chat_completions_returns_openai_shape_and_usage --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`qwen35`、`minimax-m25`、`minimax-m21` 当前可返回 OpenAI-compatible 的 `chat.completion` 结构
+  - `kimi-k25` 在当前环境可能直接命中上游 DNS/路由型 `500 do_request_failed`，导致 H1 在响应形状断言前失败
+
+## H2 Raw Completions 兼容
+
+- 对应用例：
+  - `tests/test_api_compatibility.py::test_raw_completions_returns_openai_shape_and_usage`
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_api_compatibility.py -k test_raw_completions_returns_openai_shape_and_usage --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`qwen35`、`minimax-m25`、`minimax-m21` 当前可返回 `text_completion` 结构，并带 `usage`
+  - `kimi-k25` 在当前环境可能直接命中上游 DNS/路由型 `500 do_request_failed`，导致 H2 在响应形状断言前失败
+
+## H3 /v1/models 模型列表
+
+- 对应用例：
+  - `tests/test_api_compatibility.py::test_models_endpoint_lists_selected_model`
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_api_compatibility.py -k test_models_endpoint_lists_selected_model --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `/v1/models` 当前可返回 `list` 对象
+  - 默认模型矩阵中的 5 个模型都能在返回列表里找到
+
+## H4 Usage 统计
+
+- 对应用例：
+  - `tests/test_api_compatibility.py::test_chat_completions_returns_openai_shape_and_usage`
+  - `tests/test_api_compatibility.py::test_raw_completions_returns_openai_shape_and_usage`
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_api_compatibility.py -k 'test_chat_completions_returns_openai_shape_and_usage or test_raw_completions_returns_openai_shape_and_usage' --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`qwen35`、`minimax-m25`、`minimax-m21` 当前在 `/v1/chat/completions` 与 `/v1/completions` 两条链路都满足 `prompt_tokens + completion_tokens == total_tokens`
+  - `kimi-k25` 若继续返回上游 DNS/路由型 `500`，则该轮无法完成 H4 的 usage 算术校验
+
+## H5 错误码规范
+
+- 对应用例：
+  - `tests/test_api_compatibility.py::test_chat_completions_bad_request_returns_openai_error_shape`
+  - `tests/test_api_compatibility.py::test_chat_completions_invalid_api_key_returns_openai_error_shape`
+  - `tests/test_api_compatibility.py::test_unknown_route_returns_openai_error_shape`
+  - `tests/test_api_compatibility.py::TestGLM5RateLimitProbe::test_light_rate_limit_probe_returns_only_200_or_429`
+  - `tests/test_api_compatibility.py::TestMinimaxM25ApiCompatibility::test_forced_named_tool_choice_returns_openai_error_shape_when_upstream_500_reproduces`
+- 显式复测命令：
+
+```bash
+uv run pytest -q tests/test_api_compatibility.py -k 'test_chat_completions_bad_request_returns_openai_error_shape or test_chat_completions_invalid_api_key_returns_openai_error_shape or test_unknown_route_returns_openai_error_shape or test_light_rate_limit_probe_returns_only_200_or_429 or test_forced_named_tool_choice_returns_openai_error_shape_when_upstream_500_reproduces' --chat-model glm5 --chat-model minimax-m25 -rxs
+```
+
+- 当前已知现象：
+  - `400` 可通过 `messages` 类型错误稳定复现，错误体为 OpenAI-compatible 顶层 `error`
+  - `401` 可通过无效 Bearer Token 稳定复现，错误体为 OpenAI-compatible 顶层 `error`
+  - `404` 可通过不存在路径稳定复现，错误体为 OpenAI-compatible 顶层 `error`
+  - `429` 采用轻量并发探测；当前环境可能全部返回 `200`，不保证每轮都触发限流
+  - `500` 当前可通过 `minimax-m25` forced named `tool_choice` 路径探测；若后端已修复则该用例会 `skip`
+
 ## C1 单图理解
 
 - 对应用例：
