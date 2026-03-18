@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 
 import httpx
+import pytest
 
 from tests.chat_test_support import (
     CHAT_COMPLETIONS_PATH,
@@ -60,6 +61,13 @@ def normalize_text_content(content: object) -> str:
     return content.strip().lower().strip("`'\"").rstrip(".。!！")
 
 
+def normalize_reasoning_content(reasoning: object) -> str | None:
+    if reasoning is None:
+        return None
+    assert isinstance(reasoning, str)
+    return reasoning.strip() or None
+
+
 class BaseHTTPXChatTests:
     __test__ = False
 
@@ -81,6 +89,23 @@ class BaseHTTPXChatTests:
             payload["tool_choice"] = {"type": "function", "function": {"name": tool_name}}
         elif self.TOOL_REQUEST_MODE == "auto_tool_choice":
             payload["tool_choice"] = "auto"
+
+    def assert_disable_thinking_reasoning_suppressed(
+        self,
+        reasoning: str | None,
+        *,
+        transport: str,
+    ) -> None:
+        if reasoning is None:
+            return
+
+        message = (
+            f"{self.MODEL_NAME} still returns reasoning in {transport} responses when "
+            "chat_template_kwargs.enable_thinking=false"
+        )
+        if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
+            raise AssertionError(message)
+        pytest.xfail(message)
 
     def build_create_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -264,6 +289,31 @@ class BaseHTTPXChatTests:
             ],
         }
         payload.update(self.create_request_overrides())
+        return payload
+
+    def build_enable_thinking_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": True},
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        "Solve 17 + 26. Think through it first, then reply with only the final "
+                        "answer."
+                    ),
+                },
+            ],
+        }
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_enable_thinking_stream_payload(self) -> dict[str, object]:
+        payload = self.build_enable_thinking_payload()
+        payload["stream"] = True
         return payload
 
     def build_disable_thinking_stream_payload(self) -> dict[str, object]:
@@ -505,8 +555,72 @@ class BaseHTTPXChatTests:
         reasoning = message.get("reasoning")
         if reasoning is not None:
             assert isinstance(reasoning, str)
-        if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
-            assert reasoning is None
+
+    def test_create_suppresses_reasoning_when_thinking_disabled(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_disable_thinking_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+
+        assert completion["object"] == "chat.completion"
+        assert message["role"] == "assistant"
+        self.assert_disable_thinking_reasoning_suppressed(
+            normalize_reasoning_content(message.get("reasoning")),
+            transport="create",
+        )
+
+    def test_create_returns_reasoning_when_thinking_enabled(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_enable_thinking_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        content = str(message["content"])
+        reasoning = message.get("reasoning")
+
+        assert completion["object"] == "chat.completion"
+        assert message["role"] == "assistant"
+        assert content.strip()
+        assert "43" in content
+        assert isinstance(reasoning, str)
+        assert reasoning.strip()
+
+    def test_stream_emits_reasoning_when_thinking_enabled(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        response, events, raw_text = request_sse(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_enable_thinking_stream_payload(),
+            recorder=failure_artifact_recorder,
+        )
+        stream_result = collect_stream_text(events)
+
+        assert response.status_code == 200, raw_text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert stream_result.chunk_count > 0
+        assert stream_result.saw_done
+        assert stream_result.text
+        assert "43" in stream_result.text
+        assert isinstance(stream_result.reasoning, str)
+        assert stream_result.reasoning.strip()
 
     def test_stream_accepts_chat_template_kwargs_enable_thinking_false(
         self,
@@ -527,8 +641,29 @@ class BaseHTTPXChatTests:
         assert stream_result.saw_done
         assert stream_result.text
         assert "quartz" in stream_result.text.lower()
-        if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
-            assert stream_result.reasoning is None
+
+    def test_stream_suppresses_reasoning_when_thinking_disabled(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        response, events, raw_text = request_sse(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_disable_thinking_stream_payload(),
+            recorder=failure_artifact_recorder,
+        )
+        stream_result = collect_stream_text(events)
+
+        assert response.status_code == 200, raw_text
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert stream_result.chunk_count > 0
+        assert stream_result.saw_done
+        assert stream_result.text
+        self.assert_disable_thinking_reasoning_suppressed(
+            stream_result.reasoning,
+            transport="stream",
+        )
 
     def test_structured_output_tool_returns_valid_arguments(
         self,

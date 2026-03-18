@@ -24,6 +24,7 @@ This repository is intentionally small and centered on live API validation.
 - 本项目测试的后端服务是由 vllm 提供的openai api 兼容的推理服务
 - 外部源码目录统一使用 `third_party/`，不要新建 `third-party/` 这种变体目录
 - ** 根据 “测试功能点.md” 利用现有基础设施驱动测试，如果基础设施不完善就逐步完善 。遇到不合理的测试点，及时提出，我们一起探讨** 
+- 每个 case 的测试命令要写到 test_run.md 里，让新人可以无脑执行
 ## Build, Test, and Development Commands
 
 - `uv sync`: install and lock the project environment from `pyproject.toml` and `uv.lock`.

@@ -24,8 +24,14 @@ TEST_DESCRIPTION_REGISTRY = {
     "test_create_accepts_chat_template_kwargs_enable_thinking_false": (
         "验证 create 请求接受 chat_template_kwargs.enable_thinking=false。"
     ),
+    "test_create_suppresses_reasoning_when_thinking_disabled": (
+        "严格验证 create 请求在 enable_thinking=false 时不会返回 reasoning。"
+    ),
     "test_stream_accepts_chat_template_kwargs_enable_thinking_false": (
         "验证 stream 请求接受 chat_template_kwargs.enable_thinking=false。"
+    ),
+    "test_stream_suppresses_reasoning_when_thinking_disabled": (
+        "严格验证 stream 请求在 enable_thinking=false 时不会返回 reasoning。"
     ),
     "test_structured_output_tool_returns_valid_arguments": "验证 StructuredOutput 工具调用返回合法参数。",
     "test_context_length_finds_a_finite_boundary": "探测上下文边界，并确认存在成功点和溢出点。",
