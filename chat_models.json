@@ -3,6 +3,7 @@
     "glm5",
     "qwen35",
     "minimax-m25",
-    "minimax-m21"
+    "minimax-m21",
+    "kimi-k25"
   ]
 }

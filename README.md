@@ -4,7 +4,7 @@
 
 仓库现在分成四类默认测试，外加一条显式开启的 K2 verifier 通道：
 
-- 基础 chat 套件：覆盖基础 create、stream、stream + `enable_thinking=false`、StructuredOutput
+- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、stream + `enable_thinking=false`、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
 - tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，默认走 SDK + `httpx` transport
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
@@ -223,7 +223,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、基础 SSE stream、图片 content parts 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -233,6 +233,19 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - 检查返回对象是否是正常的 `chat.completion`
 - 检查 assistant 消息内容是否非空
 - 检查 usage 统计是否返回
+
+`test_create_respects_system_prompt_priority`
+
+- 验证 system prompt 与 user 指令冲突时，模型仍优先遵循 system prompt
+- 构造一个要求返回 `system-wins` 的 system 消息，以及一个要求返回 `user-wins` 的冲突 user 消息
+- 检查最终回答是否仍然是 `system-wins`
+
+`test_create_preserves_multi_turn_context`
+
+- 验证普通多轮对话历史消息可被接受
+- 构造包含 `user -> assistant -> user` 历史的单次 `/chat/completions` 请求
+- 检查最后一轮回答是否能正确回忆前文给出的 `bamboo-7`
+- 检查返回对象与 usage 统计仍然正常
 
 `test_stream_sse_emits_content_and_done`
 
@@ -249,6 +262,23 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - 检查返回对象是否是正常的 `chat.completion`
 - 检查 assistant 消息内容是否非空
 - 检查 usage 统计是否返回
+
+`test_create_respects_max_completion_tokens_limit`
+
+- 验证 `max_completion_tokens` 可以限制输出长度
+- 发送一个明显会超出限制的计数请求，并把 `max_completion_tokens` 压到较小值
+- 检查响应仍然成功返回，且 `usage.completion_tokens` 不超过限制
+
+`test_create_supports_multilingual_output`
+
+- 验证模型可按要求输出中、英、日、韩、法混合文本
+- 使用中文指令要求原样输出固定的多语言字符串
+- 检查返回文本与预期多语言内容一致
+
+`test_create_preserves_special_tokens_in_text`
+
+- 验证文本中的 emoji、HTML 标签、代码片段和数学符号不会在简单回显场景下被破坏
+- 检查返回内容中仍包含 `😀`、`<div>ok</div>`、`` `x=1` `` 和 `∑`
 
 `test_stream_accepts_image_content_parts`
 

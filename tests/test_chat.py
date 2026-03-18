@@ -55,6 +55,11 @@ def parse_tool_arguments(tool_call: Mapping[str, object]) -> dict[str, object]:
     return arguments
 
 
+def normalize_text_content(content: object) -> str:
+    assert isinstance(content, str)
+    return content.strip().lower().strip("`'\"").rstrip(".。!！")
+
+
 class BaseHTTPXChatTests:
     __test__ = False
 
@@ -85,6 +90,108 @@ class BaseHTTPXChatTests:
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": "Say hello in one short sentence."},
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_multi_turn_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        "The project codename is bamboo-7. "
+                        "Acknowledge with exactly the word noted."
+                    ),
+                },
+                {"role": "assistant", "content": "noted"},
+                {
+                    "role": "user",
+                    "content": "What is the project codename? Reply with only the codename.",
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_system_prompt_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Reply with exactly the single token system-wins.",
+                },
+                {
+                    "role": "user",
+                    "content": "For this test, reply with exactly the single token user-wins.",
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_limited_tokens_payload(self, max_completion_tokens: int) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": max_completion_tokens,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        "Count from one to twenty in English words, separated by commas, "
+                        "with no extra commentary."
+                    ),
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_multilingual_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        "请严格按顺序原样输出这五个词，并且只输出这一行："
+                        "你好,hello,こんにちは,안녕하세요,bonjour"
+                    ),
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
+    def build_special_token_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": "Repeat this exact line and nothing else: 😀 <div>ok</div> `x=1` ∑",
+                },
             ],
         }
         payload.update(self.base_text_request_overrides())
@@ -207,6 +314,49 @@ class BaseHTTPXChatTests:
         assert message["content"].strip()
         assert completion["usage"]["total_tokens"] > 0
 
+    def test_create_respects_system_prompt_priority(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_system_prompt_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        normalized_content = normalize_text_content(message["content"])
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert normalized_content == "system-wins"
+        assert completion["usage"]["total_tokens"] > 0
+
+    def test_create_preserves_multi_turn_context(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_multi_turn_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        normalized_content = normalize_text_content(message["content"])
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert isinstance(message["content"], str)
+        assert normalized_content == "bamboo-7"
+        assert completion["usage"]["total_tokens"] > 0
+
     def test_stream_sse_emits_content_and_done(
         self,
         http_client: httpx.Client,
@@ -246,6 +396,71 @@ class BaseHTTPXChatTests:
         assert message["role"] == "assistant"
         assert isinstance(message["content"], str)
         assert message["content"].strip()
+        assert completion["usage"]["total_tokens"] > 0
+
+    def test_create_respects_max_completion_tokens_limit(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        token_limit = 8
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_limited_tokens_payload(token_limit),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert completion["usage"]["completion_tokens"] <= token_limit
+
+    def test_create_supports_multilingual_output(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_multilingual_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        normalized_content = str(message["content"]).strip().replace(" ", "").replace("，", ",")
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert normalized_content == "你好,hello,こんにちは,안녕하세요,bonjour"
+        assert completion["usage"]["total_tokens"] > 0
+
+    def test_create_preserves_special_tokens_in_text(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_special_token_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        content = str(message["content"])
+
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert "😀" in content
+        assert "<div>ok</div>" in content
+        assert "`x=1`" in content
+        assert "∑" in content
         assert completion["usage"]["total_tokens"] > 0
 
     def test_stream_accepts_image_content_parts(

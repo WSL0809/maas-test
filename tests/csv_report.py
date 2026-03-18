@@ -15,7 +15,12 @@ if TYPE_CHECKING:
 
 TEST_DESCRIPTION_REGISTRY = {
     "test_create_returns_non_empty_assistant_message": "验证基础 chat completion 返回非空 assistant 消息。",
+    "test_create_respects_system_prompt_priority": "验证 system prompt 优先于冲突的 user 指令。",
+    "test_create_preserves_multi_turn_context": "验证多轮对话历史可被保留，并用于回答后续问题。",
     "test_stream_sse_emits_content_and_done": "验证 SSE stream 返回文本内容，并以 [DONE] 事件结束。",
+    "test_create_respects_max_completion_tokens_limit": "验证 max_completion_tokens 限制生效。",
+    "test_create_supports_multilingual_output": "验证模型可按要求返回多语言文本。",
+    "test_create_preserves_special_tokens_in_text": "验证特殊字符、代码和 HTML 片段可被保留。",
     "test_create_accepts_chat_template_kwargs_enable_thinking_false": (
         "验证 create 请求接受 chat_template_kwargs.enable_thinking=false。"
     ),
