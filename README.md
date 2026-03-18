@@ -223,7 +223,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress reasoning 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、单图视觉理解（C1）主路径、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress reasoning 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -287,6 +287,15 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - 检查是否收到至少一个 `data:` JSON chunk
 - 检查是否存在 `[DONE]` 终止事件
 - 检查拼接后的 `delta.content` 是否非空，并包含提示中的 `quartz`
+
+`test_create_understands_single_image_dominant_color`
+
+- 对齐 C1“单图理解”：输入单张图片 + 文本提问，验证视觉语义回答
+- 图片使用内置纯红色 PNG 的 `data:image/png;base64,...`，避免依赖外部网络
+- 检查返回对象是否是正常的 `chat.completion`
+- 检查 assistant 消息内容是否非空
+- 如果服务端明确返回 `not a multimodal model`，记录为 `xfail`（能力不支持）
+- 当回答包含 `red`（或中文“红”）时记为通过；否则记录为 `xfail` 以便持续追踪模型视觉理解能力
 
 `test_create_accepts_chat_template_kwargs_enable_thinking_false`
 

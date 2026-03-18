@@ -12,12 +12,17 @@ from tests.chat_test_support import (
     FailureArtifactRecorder,
     collect_stream_text,
     request_json,
+    request_response,
     request_sse,
 )
 
 TINY_PNG_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2k0AAAAASUVORK5CYII="
+)
+RED_SQUARE_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mP4z8CAFTEMLQkAKP8/wc53yE8AAAAASUVORK5CYII="
 )
 
 
@@ -122,6 +127,40 @@ class BaseHTTPXChatTests:
         if self.EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT:
             raise AssertionError(failure_message)
         pytest.xfail(failure_message)
+
+    def assert_single_image_understanding(self, content: object) -> None:
+        normalized_content = normalize_text_content(content)
+        if "red" in normalized_content or "红" in normalized_content:
+            return
+        pytest.xfail(
+            f"{self.MODEL_NAME} did not identify the single-image dominant color as red "
+            f"(response={normalized_content!r})"
+        )
+
+    def assert_multimodal_request_supported_or_xfail(
+        self,
+        response: httpx.Response,
+    ) -> None:
+        if response.status_code == 200:
+            return
+
+        error_message = response.text
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+
+        if isinstance(payload, Mapping):
+            error = payload.get("error")
+            if isinstance(error, Mapping):
+                raw_message = error.get("message")
+                if isinstance(raw_message, str) and raw_message.strip():
+                    error_message = raw_message
+
+        if "not a multimodal model" in error_message.lower():
+            pytest.xfail(f"{self.MODEL_NAME} does not support multimodal image understanding on this endpoint")
+
+        raise AssertionError(response.text)
 
     def build_create_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -381,6 +420,32 @@ class BaseHTTPXChatTests:
         payload.update(self.create_request_overrides())
         return payload
 
+    def build_single_image_understanding_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Identify the dominant color in this image. "
+                                "Reply with exactly one lowercase English word."
+                            ),
+                        },
+                        {"type": "image_url", "image_url": {"url": RED_SQUARE_PNG_DATA_URL}},
+                    ],
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
+        return payload
+
     def test_create_returns_non_empty_assistant_message(
         self,
         http_client: httpx.Client,
@@ -570,6 +635,30 @@ class BaseHTTPXChatTests:
         assert stream_result.saw_done
         assert stream_result.text
         assert "quartz" in stream_result.text.lower()
+
+    def test_create_understands_single_image_dominant_color(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        response = request_response(
+            http_client,
+            "POST",
+            CHAT_COMPLETIONS_PATH,
+            self.build_single_image_understanding_payload(),
+            recorder=failure_artifact_recorder,
+        )
+        self.assert_multimodal_request_supported_or_xfail(response)
+        completion = response.json()
+
+        message = completion["choices"][0]["message"]
+        assert completion["object"] == "chat.completion"
+        assert completion["model"]
+        assert message["role"] == "assistant"
+        assert isinstance(message["content"], str)
+        assert message["content"].strip()
+        assert completion["usage"]["total_tokens"] > 0
+        self.assert_single_image_understanding(message["content"])
 
     def test_create_accepts_chat_template_kwargs_enable_thinking_false(
         self,

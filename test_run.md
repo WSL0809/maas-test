@@ -1,5 +1,31 @@
 # Test Run Commands
 
+## C1 单图理解
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_understands_single_image_dominant_color`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_understands_single_image_dominant_color -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_understands_single_image_dominant_color --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_understands_single_image_dominant_color -rx
+```
+
+- 当前已知现象：
+  - `qwen35`、`kimi-k25` 可稳定识别内置纯红色图片并返回 `red`
+  - `glm5`、`minimax-m25`、`minimax-m21` 在当前端点会返回 `400 not a multimodal model`，在用例中以 `xfail` 记录
+
 ## B2 非思考模式（Instant）
 
 - B2-A 请求可接受性
