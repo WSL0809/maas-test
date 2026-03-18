@@ -34,6 +34,7 @@ TEST_DESCRIPTION_REGISTRY = {
         "严格验证 stream 请求在 enable_thinking=false 时不会返回 reasoning。"
     ),
     "test_structured_output_tool_returns_valid_arguments": "验证 StructuredOutput 工具调用返回合法参数。",
+    "test_json_mode_returns_valid_json_object": "验证 response_format=json_object 返回合法 JSON 对象。",
     "test_context_length_finds_a_finite_boundary": "探测上下文边界，并确认存在成功点和溢出点。",
     "test_sdk_create_returns_non_empty_assistant_message": "验证 OpenAI Python SDK 的基础 create 接入。",
     "test_sdk_stream_true_yields_non_empty_text": "验证 OpenAI Python SDK 的基础流式接入。",

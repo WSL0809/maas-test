@@ -74,6 +74,7 @@ class BaseHTTPXChatTests:
     MODEL_NAME: str = ""
     TOOL_REQUEST_MODE = "forced_named_tool_choice"
     EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED: bool | None = None
+    EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT: bool = True
 
     def base_text_request_overrides(self) -> Mapping[str, object]:
         return {}
@@ -106,6 +107,21 @@ class BaseHTTPXChatTests:
         if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
             raise AssertionError(message)
         pytest.xfail(message)
+
+    def assert_json_mode_payload_in_content(self, message: Mapping[str, object]) -> str:
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+
+        reasoning = normalize_reasoning_content(message.get("reasoning"))
+        reason_suffix = f" (reasoning={reasoning!r})" if reasoning else ""
+        failure_message = (
+            f"{self.MODEL_NAME} did not return JSON mode payload in message.content{reason_suffix}"
+        )
+
+        if self.EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT:
+            raise AssertionError(failure_message)
+        pytest.xfail(failure_message)
 
     def build_create_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -341,6 +357,28 @@ class BaseHTTPXChatTests:
         }
         self.apply_tool_choice(payload, "StructuredOutput")
         payload.update(self.tool_request_overrides())
+        return payload
+
+    def build_json_mode_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        "Return a JSON object with exactly these fields: "
+                        '{"word":"ping","length":4}. '
+                        "Do not return markdown."
+                    ),
+                },
+            ],
+        }
+        payload.update(self.base_text_request_overrides())
+        payload.update(self.create_request_overrides())
         return payload
 
     def test_create_returns_non_empty_assistant_message(
@@ -687,6 +725,28 @@ class BaseHTTPXChatTests:
         assert parsed["word"].lower() == "ping"
         assert parsed["length"] == 4
 
+    def test_json_mode_returns_valid_json_object(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            self.build_json_mode_payload(),
+            recorder=failure_artifact_recorder,
+        )
+
+        message = completion["choices"][0]["message"]
+        assert completion["object"] == "chat.completion"
+        assert message["role"] == "assistant"
+        content = self.assert_json_mode_payload_in_content(message)
+
+        parsed = json.loads(content)
+        assert isinstance(parsed, dict)
+        assert parsed.get("word") == "ping"
+        assert parsed.get("length") == 4
+
 
 class BaseOpenAICompatibleChatTests(BaseHTTPXChatTests):
     __test__ = False
@@ -707,6 +767,7 @@ class TestGLM5ChatCompletions(BaseRelaxedToolChoiceChatTests):
     __test__ = True
     MODEL_NAME = "glm5"
     EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED = True
+    EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT = False
 
 
 class TestQwen35ChatCompletions(BaseRelaxedToolChoiceChatTests):
@@ -724,8 +785,10 @@ class TestQwen35ChatCompletions(BaseRelaxedToolChoiceChatTests):
 class TestMinimaxM25ChatCompletions(BaseRelaxedToolChoiceChatTests):
     __test__ = True
     MODEL_NAME = "minimax-m25"
+    EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT = False
 
 
 class TestMinimaxM21ChatCompletions(BaseRelaxedToolChoiceChatTests):
     __test__ = True
     MODEL_NAME = "minimax-m21"
+    EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT = False

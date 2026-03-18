@@ -4,7 +4,7 @@
 
 仓库现在分成四类默认测试，外加一条显式开启的 K2 verifier 通道：
 
-- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、StructuredOutput
+- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、JSON Mode、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
 - tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，以及显式的多步链式 tool loop 回填路径；当前包含单工具、同消息重复 tool call、同消息并行多工具、多步链式 tool loop 等场景
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
@@ -223,7 +223,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress reasoning 校验，以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress reasoning 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -335,6 +335,13 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - 检查返回字段是否严格符合 `word` / `length`
 - 检查字段值是否与提示一致
 
+`test_json_mode_returns_valid_json_object`
+
+- 验证 `response_format={"type":"json_object"}` 路径可用
+- 检查 assistant `content` 可被解析为 JSON 对象
+- 检查 JSON 对象包含预期字段 `word` / `length`
+- 检查字段值与提示一致（`ping` / `4`）
+
 ### 模型矩阵
 
 | 模型类 | 基础 create/stream 请求 | tools 策略 | `enable_thinking=false` 行为 | StructuredOutput 策略 |
@@ -347,17 +354,17 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 如果命令行显式传了 `--chat-model`，基础 chat 套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
 
-基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径允许按模型类做最小差异化。
+基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径和 JSON Mode 路径都允许按模型类做最小差异化；当前 JSON Mode 在 `glm5`、`minimax-m21`、`minimax-m25` 上会以 `xfail` 记录通道差异（JSON 落在 `message.reasoning`）。
 
 ### 模型接口返回特点
 
 | 模型 | 基础 `create` / `stream` | `enable_thinking=false` 行为 | tools 行为 | StructuredOutput 行为 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| `kimi-k25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop` |
-| `glm5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致 |
-| `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path |
-| `minimax-m25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径 |
-| `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致 |
+| `kimi-k25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop`；JSON Mode 可在 `message.content` 返回 JSON |
+| `glm5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+| `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
+| `minimax-m25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+| `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
 
 ## Context Length 套件
 

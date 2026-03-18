@@ -75,3 +75,42 @@ uv run pytest -q tests/test_tool_calling.py -k test_multi_step_tool_chain_round_
   - `glm5`、`minimax-m21`、`minimax-m25` 可稳定完成 `fetch_seed_word -> uppercase_word -> decorate_word -> [STONE]` 的 3 步链式回填。
   - `qwen35` 首步可进入工具调用，但第二步会退化为文本/XML 风格的伪工具调用并因长度截断，未进入结构化 `tool_calls`。
   - `kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`，只剩 reasoning，导致链路无法闭环。
+
+## B8 JSON Mode
+
+- 对应用例：
+  - `tests/test_chat.py::test_json_mode_returns_valid_json_object`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_json_mode_returns_valid_json_object
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_json_mode_returns_valid_json_object --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `qwen35`、`kimi-k25` 可在 `message.content` 稳定返回合法 JSON。
+  - `glm5`、`minimax-m25`、`minimax-m21` 当前会把 JSON 放在 `message.reasoning` 且 `message.content=null`，在该用例中以 `xfail` 记录。
+
+## B9 结构化输出
+
+- 对应用例：
+  - `tests/test_chat.py::test_structured_output_tool_returns_valid_arguments`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_structured_output_tool_returns_valid_arguments
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_structured_output_tool_returns_valid_arguments --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`qwen35`、`minimax-m25`、`minimax-m21`、`kimi-k25` 均可稳定通过。
