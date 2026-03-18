@@ -6,3 +6,7 @@ reports/
 third_party/
 .gitmodules
 .alma-snapshots
+!third_party/
+third_party/*
+!third_party/k2_vendor_verifier/
+!third_party/k2_vendor_verifier/**

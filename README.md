@@ -1,13 +1,14 @@
 # maas-test
 
-这是一个以 `httpx` 为主、以 OpenAI Python SDK 为辅的实时集成测试仓库，用来验证 vLLM 提供的 OpenAI-compatible chat completion 接口是否按预期工作。
+这是一个结合 `httpx` 与 OpenAI Python SDK 的实时集成测试仓库，用来验证 vLLM 提供的 OpenAI-compatible chat completion 接口是否按预期工作。
 
-仓库现在分成四类测试：
+仓库现在分成四类默认测试，外加一条显式开启的 K2 verifier 通道：
 
 - 基础 chat 套件：覆盖基础 create、stream、stream + `enable_thinking=false`、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
-- tool calling 套件：覆盖 httpx 工具调用主路径与代表性 stream 主路径，并默认包含 SDK probe
+- tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，默认走 SDK + `httpx` transport
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
+- K2 verifier：面向外部 JSONL 数据集的大规模 tool-calling 精度验证，默认不进入主套件
 
 ## 运行前准备
 
@@ -31,58 +32,57 @@
 uv sync
 ```
 
+如果只想查看 K2 verifier 和测试目录，相关路径如下：
+
+- [k2_verifier/cli.py](/Users/wangshilong/Downloads/maas-test/k2_verifier/cli.py)：CLI 入口
+- [k2_verifier/core.py](/Users/wangshilong/Downloads/maas-test/k2_verifier/core.py)：请求预处理、stream 聚合、schema 校验、结果汇总
+- [tests/fixtures/k2/tool_calling_subset.jsonl](/Users/wangshilong/Downloads/maas-test/tests/fixtures/k2/tool_calling_subset.jsonl)：默认 `pytest` 工具调用子集
+- [datasets/k2/smoke.jsonl](/Users/wangshilong/Downloads/maas-test/datasets/k2/smoke.jsonl)：手工 verifier smoke 数据集
+- [datasets/k2/vendor_samples.jsonl](/Users/wangshilong/Downloads/maas-test/datasets/k2/vendor_samples.jsonl)：手工 verifier 大样本数据集
+- [third_party/k2_vendor_verifier](/Users/wangshilong/Downloads/maas-test/third_party/k2_vendor_verifier)：上游 `K2-Vendor-Verifier` 参考快照
+
 运行默认主套件：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py
+uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
 显式指定连接地址：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --OPENAI_BASE_URL=http://127.0.0.1:8000/v1
 ```
 
 运行 SDK smoke 套件：
 
 ```bash
-uv run pytest -q test_chat_sdk_smoke.py
+uv run pytest -q tests/test_chat_sdk_smoke.py
 ```
 
-运行 tool calling probe 套件：
-
-```bash
-uv run pytest -q test_tool_calling.py -m tool_calling_probe
-```
-
-只运行默认非 probe 的 tool calling 套件：
-
-```bash
-uv run pytest -q test_tool_calling.py -m "not tool_calling_probe"
-```
+`--run-tool-calling-probe` 仍保留为兼容参数，但当前已经没有单独的 probe 套件；默认 `tests/test_tool_calling.py` 已经统一切到数据集驱动的 SDK 主路径。
 
 运行指定模型：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
+uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
 ```
 
 也可以通过环境变量一次指定多个模型：
 
 ```bash
-OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py
+OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
 输出可读 CSV 报告：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --csv-report-dir=reports
+uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --csv-report-dir=reports
 ```
 
 运行指定模型并输出 CSV：
 
 ```bash
-uv run pytest -q test_chat.py test_context_length.py test_tool_calling.py test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
+uv run pytest -q tests/test_chat.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
 ```
 
 失败用例归档：
@@ -127,9 +127,103 @@ CSV 报告输出：
 - `passed` / `failed` / `skipped` / `total`: 对应维度下的统计计数
 - `pass_rate`: 通过率，按 `passed / total` 计算
 
+## K2 Verifier
+
+K2 verifier 是一条独立的补充评测通道，用来对外部 JSONL 请求集做大规模 tool-calling 验证。它不会进入默认 `pytest` 主套件，也不会写入 `test_failure_artifacts/`。
+
+### 适用场景
+
+- 验证某个 OpenAI-compatible 部署在大量 tool-calling 样本上的 `finish_reason` 与 schema 准确率
+- 对比不同 provider / guided encoding / `chat_template_kwargs` 参数组合
+- 复现上游 [K2-Vendor-Verifier](https://github.com/MoonshotAI/K2-Vendor-Verifier) 的核心执行形状，同时继续复用本仓库的 `.env`
+
+### 运行方式
+
+最小运行命令：
+
+```bash
+uv run python -m k2_verifier.cli path/to/dataset.jsonl --model kimi-k25
+```
+
+显式指定 endpoint：
+
+```bash
+uv run python -m k2_verifier.cli path/to/dataset.jsonl \
+  --model kimi-k25 \
+  --base-url http://127.0.0.1:8000/v1
+```
+
+传入额外请求体参数：
+
+```bash
+uv run python -m k2_verifier.cli path/to/dataset.jsonl \
+  --model kimi-k25 \
+  --extra-body '{"chat_template_kwargs":{"thinking":false},"temperature":0.6}'
+```
+
+指定输出文件：
+
+```bash
+uv run python -m k2_verifier.cli path/to/dataset.jsonl \
+  --model kimi-k25 \
+  --output reports/k2vv/manual/results.jsonl \
+  --summary reports/k2vv/manual/summary.json
+```
+
+如果不显式传 `--base-url`，会继续复用 `.env` 或环境变量里的 `OPENAI_BASE_URL`。如果不传 `--api-key`，会继续复用 `.env` 或环境变量里的 `OPENAI_API_KEY`。
+
+官方 sample dataset 下载地址：
+
+```bash
+mkdir -p /tmp/k2vv-sample
+cd /tmp/k2vv-sample
+curl -L --fail -o tool-calls.tar.gz https://statics.moonshot.cn/k2vv/tool-calls.tar.gz
+tar -xzf tool-calls.tar.gz
+```
+
+解压后可直接使用的样例文件路径是 `tool-calls/samples.jsonl`，例如：
+
+```bash
+uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl --model kimi-k25
+```
+
+基于当前仓库配置、可直接复制执行的完整命令：
+
+```bash
+mkdir -p /tmp/k2vv-sample && \
+cd /tmp/k2vv-sample && \
+curl -L --fail -o tool-calls.tar.gz https://statics.moonshot.cn/k2vv/tool-calls.tar.gz && \
+tar -xzf tool-calls.tar.gz && \
+cd /Users/wangshilong/Downloads/maas-test && \
+uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
+  --model kimi-k25 \
+  --base-url https://codingplan-staging.alayanew.com:26443/v1 \
+  --concurrency 5 \
+  --output reports/k2vv/manual/results.jsonl \
+  --summary reports/k2vv/manual/summary.json
+```
+
+这条命令默认继续复用仓库根目录 `.env` 里的 `OPENAI_API_KEY`。
+
+### 输入与兼容性
+
+- 输入文件必须是 JSONL；每一行都应是完整的 OpenAI-compatible 请求体
+- 默认走 `/v1/chat/completions`
+- 传入 `--use_raw_completions` 时会改走 `/v1/completions`，并使用 tokenizer 把 `messages` 转成 prompt；该模式需要本地安装 `transformers`
+- 默认会把历史 `assistant.tool_calls[].id` 规范化为 `functions.<name>:<idx>`，并同步修正对应的 `tool.tool_call_id`
+- 传入 `--disable-tool-call-id-normalization` 可关闭这一步兼容处理
+- `--extra-body` 会透传给 OpenAI SDK 的 `extra_body`，适合传 provider 路由、guided encoding、`chat_template_kwargs` 等后端特定参数
+
+### 输出内容
+
+未显式指定 `--output` / `--summary` 时，结果默认写到 `reports/k2vv/<timestamp>/`：
+
+- `results.jsonl`：逐请求结果，包含准备后的请求体、响应体、`finish_reason`、`tool_calls_valid`、耗时和稳定 hash
+- `summary.json`：聚合统计，包含 `success_count`、`failure_count`、`finish_tool_calls`、`successful_tool_call_count`、`schema_validation_error_count` 与 usage 汇总；每处理完一条请求都会覆盖更新一次，因此中断运行时也能看到部分统计，完成前 `eval_finished_at` 会保持 `null`
+
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [test_chat.py](/Users/wangshilong/Downloads/maas-test/test_chat.py)。它只保留非工具调用主路径：基础 create、基础 SSE stream、图片 content parts 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、基础 SSE stream、图片 content parts 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream、以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -213,7 +307,7 @@ CSV 报告输出：
 
 ## Context Length 套件
 
-context length 套件位于 [test_context_length.py](/Users/wangshilong/Downloads/maas-test/test_context_length.py)。这个文件是默认主套件的一部分，不再是独立脚本。它会对当前选中的每个模型执行一次“先指数扩边、再二分收敛”的上下文边界探测。
+context length 套件位于 [tests/test_context_length.py](/Users/wangshilong/Downloads/maas-test/tests/test_context_length.py)。这个文件是默认主套件的一部分，不再是独立脚本。它会对当前选中的每个模型执行一次“先指数扩边、再二分收敛”的上下文边界探测。
 
 ### 测试行为
 
@@ -234,7 +328,7 @@ context length 套件位于 [test_context_length.py](/Users/wangshilong/Download
 
 ## SDK Smoke 套件
 
-SDK smoke 套件位于 [test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maas-test/test_chat_sdk_smoke.py)，默认参与主执行路径；旧的 `--run-sdk-smoke` 仅作为兼容参数保留，不再影响收集结果。
+SDK smoke 套件位于 [tests/test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat_sdk_smoke.py)，默认参与主执行路径；旧的 `--run-sdk-smoke` 仅作为兼容参数保留，不再影响收集结果。
 
 ### 1. SDK 基础调用
 
@@ -250,136 +344,33 @@ SDK smoke 套件位于 [test_chat_sdk_smoke.py](/Users/wangshilong/Downloads/maa
 
 ## Tool Calling 套件
 
-tool calling 套件位于 [test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/test_tool_calling.py)。这个文件包含两部分：
+tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/tests/test_tool_calling.py)，默认只保留一个数据集驱动入口：`test_dataset_driven_tool_calling_case`。
 
-- 默认运行的 httpx 工具调用主套件（包含代表性 stream 覆盖）
-- 同样默认运行的 SDK probe；如果只想单独筛选 probe，可使用 `-m tool_calling_probe`
+### 执行方式
 
-### 默认 httpx 工具调用行为
+- 请求装载自 [tests/fixtures/k2/tool_calling_subset.jsonl](/Users/wangshilong/Downloads/maas-test/tests/fixtures/k2/tool_calling_subset.jsonl)
+- 发送逻辑直接复用 [k2_verifier/core.py](/Users/wangshilong/Downloads/maas-test/k2_verifier/core.py) 的 `ToolCallsValidator`
+- 调用面与上游 K2 verifier 保持一致：使用 OpenAI Python SDK，底层连接使用 `httpx.AsyncClient`
+- 默认仍属于主套件，不需要额外 marker
 
-`test_create_returns_tool_call`
+### 默认断言
 
-- 验证基础 weather tool call 是否可用
-- 检查 `message.tool_calls` 是否存在
-- 检查函数名是否为 `collect_weather_args`
-- 检查参数是否包含 `city=Tokyo` 与 `unit=celsius`
+`test_dataset_driven_tool_calling_case`
 
-`test_stream_returns_tool_call`
+- 每条样本只校验稳定协议信号，不再校验最终 assistant 文本内容
+- 统一断言请求执行成功
+- 若样本预期触发工具调用，则断言 `message.tool_calls` 存在，且每个 `function.arguments` 都能通过对应 JSON Schema；即使后端把 `finish_reason` 返回成 `stop` 也按默认 pytest passing path 处理
+- 若样本预期是普通结束，则只断言 `finish_reason == "stop"` 且响应结构合法
+- 严格的 `finish_reason == "tool_calls"` 口径仍保留给 `python -m k2_verifier.cli` / [k2_verifier/core.py](/Users/wangshilong/Downloads/maas-test/k2_verifier/core.py) 的 K2 verifier 汇总统计
 
-- 验证非 SDK `stream=true` 的 weather tool call 是否可用
-- 检查 SSE 响应头是否为 `text/event-stream`
-- 检查流式聚合后的第一个工具调用函数名是否为 `collect_weather_args`
-- 检查聚合后的参数 JSON 仍然包含 `city=Tokyo` 与 `unit=celsius`
+### 当前默认子集覆盖
 
-`test_tool_call_round_trip_returns_final_assistant_message`
+- 单工具非流式 tool call
+- 单工具流式 tool call
+- 同一条 assistant 消息中的重复同名 tool call
+- 带 `assistant/tool` 历史消息的多轮请求
+- 嵌套数组/对象参数的复杂 schema tool call
 
-- 验证多轮 tool loop 是否可用
-- 第一轮检查 assistant 是否先返回 `collect_weather_args` 工具调用
-- 第二轮把 assistant 的 `tool_calls` 与对应 `tool` 结果回填到 `messages`
-- 检查服务是否能继续生成最终 assistant 文本答复
-
-`test_stream_tool_call_round_trip_returns_final_assistant_message`
-
-- 验证非 SDK streamed tool call 后，继续回填 `tool` 结果并再次使用 `stream=true` 的两轮路径是否可用
-- 第一轮从 SSE `delta.tool_calls` 增量中聚合出完整 `collect_weather_args` 调用
-- 第二轮把聚合后的 `assistant.tool_calls` 与对应 `tool` 结果回填到 `messages`
-- 检查最终 SSE 文本答复非空，且仍包含 `tokyo` 或 `celsius`
-
-`test_create_returns_repeated_same_tool_calls`
-
-- 验证 assistant 是否能在同一条消息里连续返回两个同名 `collect_weather_args` 工具调用
-- 检查 `message.tool_calls` 至少包含两个条目
-- 检查前两个函数名都为 `collect_weather_args`
-- 检查两次参数分别匹配 `Tokyo/celsius` 与 `Shanghai/celsius`
-
-`test_list_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `list` 工具的调用形状
-- 检查函数名是否为 `list`
-- 检查工具参数是否包含绝对目录路径与 `ignore` 列表
-
-`test_read_tool_round_trip_returns_final_assistant_message`
-
-- 模拟 OpenCode 内置 `read` 工具的两轮调用形状
-- 第一轮检查 assistant 是否返回 `read` 工具调用，且参数包含 `filePath` / `offset` / `limit`
-- 第二轮回填一个伪造的 `read` 工具结果
-- 检查服务是否能继续生成最终 assistant 文本答复
-
-`test_grep_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `grep` 工具的调用形状
-- 检查函数名是否为 `grep`
-- 检查工具参数是否包含 `pattern`、`path`、`include`
-
-`test_bash_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `bash` 工具的调用形状
-- 检查函数名是否为 `bash`
-- 检查工具参数是否包含 `command`、`workdir`、`description`
-- 如果模型返回了 `timeout`，检查它是整数
-
-`test_edit_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `edit` 工具的调用形状
-- 检查函数名是否为 `edit`
-- 检查工具参数是否包含 `filePath`、`oldString`、`newString`
-- 如果模型返回了 `replaceAll`，检查它是 `false`
-
-`test_write_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `write` 工具的调用形状
-- 检查函数名是否为 `write`
-- 检查工具参数是否包含 `filePath` 与 `content`
-
-`test_task_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `task` 工具的调用形状
-- 检查函数名是否为 `task`
-- 检查工具参数是否包含 `description`、`prompt`、`subagent_type`
-
-`test_todowrite_tool_returns_valid_arguments`
-
-- 模拟 OpenCode 内置 `todowrite` 工具的调用形状
-- 检查函数名是否为 `todowrite`
-- 检查工具参数是否包含合法的 `todos` 数组
-- 检查每个 todo 项是否包含 `content`、`status`、`priority`
-
-`test_create_accepts_multi_turn_history_with_assistant_and_tool_messages`
-
-- 验证服务是否接受包含 `assistant` / `tool` 历史消息的多轮会话形状
-- 复用第一轮真实生成的工具调用，构造更接近 OpenCode 的历史消息
-- 在已有 `assistant + tool` 历史后追加新的 `user` 追问
-- 检查服务是否仍能返回稳定的 assistant 文本
-
-当前模型矩阵下，tool calling 套件不包含 `apply_patch`，因为 OpenCode 对这组模型更真实的默认路径仍是 `edit` / `write`。其中 `edit` 和 `task` 对 `qwen35` 不在稳定 passing path 中；“同响应内连续两次同名 weather tool call”对 `kimi-k25`、`qwen35` 和 `minimax-m21` 不在稳定 passing path 中；`qwen35` 的 streamed tool-call round-trip 第二轮当前也不稳定产出最终文本。这些不稳定组合会在收集阶段直接裁剪，不会进入默认结果里的 `skipped`。如果某个模型经过 live 验证后不稳定，应优先在模型类里显式关闭对应能力，并让收集阶段排除该组合，而不是让默认主套件随机失败或产生 `skip`。
-
-### SDK Probe
-
-下面这些 probe 用例默认运行；如果只想单独执行 probe，可使用 `-m tool_calling_probe`。
-
-### 1. 单工具非流式调用
-
-`test_sdk_single_tool_call_returns_valid_json_arguments`
-
-验证官方 Python SDK 的非流式 tool call 是否返回合法 JSON 参数。
-
-### 2. 单工具流式调用
-
-`test_sdk_stream_tool_call_emits_valid_json_arguments`
-
-验证官方 Python SDK 的流式 tool call chunk 聚合后是否仍能组成合法 JSON 参数。
-其中 `qwen35` 的 streamed tool-call 不在稳定 passing path 中，因此该组合会在收集阶段裁剪，不进入默认结果。
-
-### 3. 多工具请求
-
-`test_sdk_multi_tool_request_returns_valid_tool_calls`
-
-验证在同一请求中提供多个工具定义时，模型返回的 tool call 名称和参数 JSON 是否保持有效。
-
-### 4. 大参数负载
-
-`test_sdk_large_tool_arguments_remain_valid_json`
-
-验证较大的 tool call arguments 在 SDK 路径下仍然保持 JSON 可解析。
+当前子集会在数据文件元数据里声明不在稳定 passing path 的模型组合；这些组合会在收集阶段直接裁剪，不进入默认结果。比如“重复同名 tool call”目前不会对 `kimi-k25`、`qwen35` 和 `minimax-m21` 执行。
 
 如果某个用例失败，可以直接打开 [test_failure_artifacts](/Users/wangshilong/Downloads/maas-test/test_failure_artifacts) 里的最新归档文件复盘请求和响应细节。

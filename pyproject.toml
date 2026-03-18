@@ -15,5 +15,5 @@ dependencies = [
 [tool.pytest.ini_options]
 markers = [
     "sdk_smoke: OpenAI Python SDK smoke coverage.",
-    "tool_calling_probe: OpenAI Python SDK tool-calling probe coverage.",
+    "tool_calling_probe: Deprecated compatibility marker for legacy tool-calling probe coverage.",
 ]

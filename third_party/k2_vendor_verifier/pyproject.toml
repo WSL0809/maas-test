@@ -1,0 +1,15 @@
+[project]
+name = "kimi-vendor-verfier"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.28.1",
+    "jsonschema>=4.25.1",
+    "loguru>=0.7.3",
+    "megfile>=4.2.4",
+    "openai>=1.108.1",
+    "tqdm>=4.67.1",
+    "transformers>=4.57.1",
+]
