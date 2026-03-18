@@ -9,6 +9,7 @@ import logging
 import random
 import re
 import time
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -181,6 +182,7 @@ class DatasetCase:
     request: dict[str, Any]
     expected_finish_reason: str | None = None
     expected_tool_calls_valid: bool | None = None
+    expected_tool_call_names: tuple[str, ...] = ()
     skip_models: tuple[str, ...] = ()
     data_index: int = 0
 
@@ -201,6 +203,8 @@ class DatasetCase:
             metadata["expected_finish_reason"] = self.expected_finish_reason
         if self.expected_tool_calls_valid is not None:
             metadata["expected_tool_calls_valid"] = self.expected_tool_calls_valid
+        if self.expected_tool_call_names:
+            metadata["expected_tool_call_names"] = list(self.expected_tool_call_names)
         if self.skip_models:
             metadata["skip_models"] = list(self.skip_models)
         entry[LOCAL_METADATA_KEY] = metadata
@@ -662,6 +666,11 @@ def load_dataset_cases(file_path: str | Path) -> list[DatasetCase]:
             )
             expected_finish_reason = metadata.get("expected_finish_reason")
             expected_tool_calls_valid = metadata.get("expected_tool_calls_valid")
+            expected_tool_call_names = tuple(
+                str(name).strip()
+                for name in metadata.get("expected_tool_call_names", [])
+                if str(name).strip()
+            )
             description = str(metadata.get("description") or metadata.get("case_id") or f"case-{line_num}")
             case_id = str(metadata.get("case_id") or f"line-{line_num}")
 
@@ -678,6 +687,7 @@ def load_dataset_cases(file_path: str | Path) -> list[DatasetCase]:
                         if expected_tool_calls_valid is not None
                         else None
                     ),
+                    expected_tool_call_names=expected_tool_call_names,
                     skip_models=skip_models,
                     data_index=line_num,
                 )
@@ -1161,6 +1171,9 @@ class ToolCallsValidator:
         finish_reason = None
         tool_calls_present = False
         tool_calls_valid = None
+        tool_call_names: list[str] = []
+        expected_tool_call_names: list[str] = []
+        tool_call_names_match = None
 
         if response and "choices" in response and response["choices"]:
             choice = response["choices"][0]
@@ -1170,6 +1183,18 @@ class ToolCallsValidator:
             if tool_calls:
                 tool_calls_present = True
                 tool_calls_valid = all(self.validate_tool_call(tc, tools) for tc in tool_calls)
+                tool_call_names = [
+                    str(tool_call.get("function", {}).get("name") or "")
+                    for tool_call in tool_calls
+                    if isinstance(tool_call, Mapping)
+                ]
+            expected_tool_call_names = [
+                str(name).strip()
+                for name in prepared_req.get("meta", {}).get("expected_tool_call_names", [])
+                if str(name).strip()
+            ]
+            if expected_tool_call_names:
+                tool_call_names_match = Counter(tool_call_names) == Counter(expected_tool_call_names)
 
         result = {
             "data_index": data_index,
@@ -1182,6 +1207,9 @@ class ToolCallsValidator:
             "finish_reason": finish_reason,
             "tool_calls_present": tool_calls_present,
             "tool_calls_valid": tool_calls_valid,
+            "tool_call_names": tool_call_names,
+            "expected_tool_call_names": expected_tool_call_names,
+            "tool_call_names_match": tool_call_names_match,
             "last_run_at": datetime.now().isoformat(),
             "duration_ms": duration_ms,
             "hash": prepared_req["hash"],

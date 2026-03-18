@@ -31,3 +31,26 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_accept
 ```bash
 uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
 ```
+
+## B6 工具调用-并行调用
+
+- 对应用例：
+  - `tests/test_tool_calling.py::test_dataset_driven_tool_calling_case[glm5-parallel_distinct_tool_calls]`
+  - `tests/test_tool_calling.py::test_dataset_driven_tool_calling_case[minimax-m25-parallel_distinct_tool_calls]`
+  - `tests/test_tool_calling.py::test_dataset_driven_tool_calling_case[kimi-k25-parallel_distinct_tool_calls]`
+- 默认稳定路径复测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k parallel_distinct_tool_calls --chat-model glm5 --chat-model minimax-m25 --chat-model kimi-k25
+```
+
+- 全模型探测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k parallel_distinct_tool_calls --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`minimax-m25`、`kimi-k25` 可稳定返回同一条 assistant 消息中的两个不同 tool calls。
+  - `qwen35` 当前会耗尽 completion 长度，只输出 reasoning，不产出结构化 `tool_calls`。
+  - `minimax-m21` 当前会以文本/XML 形式写出工具调用并因长度截断，未进入结构化 `tool_calls` 通道。

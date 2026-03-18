@@ -2,19 +2,18 @@
 
 ## Goal
 
-Complete the easy items in section A of `测试功能点.md`, skip unstable or high-effort items for now, and record outcomes with emoji statuses.
+继续完成 B6「工具调用-并行调用」场景，确保测试能精确验证“单次 assistant 回复里包含多个工具调用”，并将结果回填到仓库文档。
 
 ## Phases
 
 | Phase | Status | Notes |
 |---|---|---|
-| Identify easy A3-A12 items and existing coverage | complete | A4/A5 reused existing coverage; A3/A8/A11/A12 were added as low-risk tests. |
-| Implement missing low-risk tests in `tests/test_chat.py` | complete | README and CSV descriptions updated together. |
-| Run the selected A tests across model matrix | complete | A3/A4/A5/A8/A11/A12 verified; A6/A7/A9/A10 deferred. |
-| Update `测试功能点.md` statuses | complete | Added `⚠️` for partial pass in grouped Minimax column. |
+| Inspect current B6 definition and verifier capabilities | complete | 已确认当前只校验 tool call schema 合法，不能精确断言多工具并行调用 |
+| Extend verifier and fixtures to express multi-tool parallel-call expectations | complete | 已补 metadata 字段、定向 fixture 与断言 |
+| Run targeted tests for B6 and update docs/status | in_progress | 已完成首轮 live pytest 和文档回填，正在做最终回归 |
 
 ## Errors Encountered
 
 | Error | Attempt | Resolution |
 |---|---|---|
-| `minimax-m21` failed A3 system prompt priority | 1 | Kept A3 as partial pass for grouped Minimax column and deferred deeper debugging. |
+| None | 0 | N/A |

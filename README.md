@@ -6,7 +6,7 @@
 
 - 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
-- tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，默认走 SDK + `httpx` transport
+- tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，包括单工具、同消息重复 tool call、同消息并行多工具等路径，默认走 SDK + `httpx` transport
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
 - K2 verifier：面向外部 JSONL 数据集的大规模 tool-calling 精度验证，默认不进入主套件
 

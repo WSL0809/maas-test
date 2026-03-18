@@ -42,8 +42,6 @@ def build_weather_tool_definition() -> list[dict[str, object]]:
             },
         }
     ]
-
-
 def test_prepare_request_payload_applies_overrides_and_normalizes_tool_history() -> None:
     raw_request = {
         "messages": [
@@ -248,11 +246,25 @@ def test_load_dataset_cases_reads_metadata_and_skip_models() -> None:
     assert first.case_id == "single_tool_nonstream"
     assert first.expected_finish_reason == "tool_calls"
     assert first.expected_tool_calls_valid is True
+    assert first.expected_tool_call_names == ()
     assert first.request["messages"][0]["role"] == "system"
 
     repeated = next(case for case in cases if case.case_id == "repeated_same_tool_calls")
     assert repeated.should_skip_model("kimi-k25") is True
     assert repeated.should_skip_model("glm5") is False
+    assert repeated.expected_tool_call_names == (
+        "collect_weather_args",
+        "collect_weather_args",
+    )
+
+    parallel = next(case for case in cases if case.case_id == "parallel_distinct_tool_calls")
+    assert parallel.expected_tool_call_names == (
+        "lookup_weather",
+        "lookup_local_time",
+    )
+    assert parallel.should_skip_model("qwen35") is True
+    assert parallel.should_skip_model("minimax-m21") is True
+    assert parallel.should_skip_model("glm5") is False
 
 
 def test_validate_request_processes_single_dataset_case(monkeypatch, tmp_path) -> None:
@@ -302,6 +314,8 @@ def test_validate_request_processes_single_dataset_case(monkeypatch, tmp_path) -
     assert result["finish_reason"] == "tool_calls"
     assert result["tool_calls_present"] is True
     assert result["tool_calls_valid"] is True
+    assert result["tool_call_names"] == ["collect_weather_args"]
+    assert result["tool_call_names_match"] is None
 
 
 def test_validate_request_marks_tool_calls_present_even_when_finish_reason_is_stop(monkeypatch, tmp_path) -> None:
@@ -350,6 +364,67 @@ def test_validate_request_marks_tool_calls_present_even_when_finish_reason_is_st
     assert result["finish_reason"] == "stop"
     assert result["tool_calls_present"] is True
     assert result["tool_calls_valid"] is True
+    assert result["tool_call_names_match"] is None
+
+
+def test_validate_request_matches_expected_tool_call_names_ignoring_order(monkeypatch, tmp_path) -> None:
+    async def fake_send_request(self, request):
+        assert request["model"] == "kimi-k2"
+        return (
+            "success",
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "lookup_local_time",
+                                        "arguments": json.dumps({"city": "Tokyo"}),
+                                    },
+                                },
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "lookup_weather",
+                                        "arguments": json.dumps(
+                                            {"city": "Tokyo", "unit": "celsius"}
+                                        ),
+                                    },
+                                },
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+            },
+        )
+
+    monkeypatch.setattr(ToolCallsValidator, "send_request", fake_send_request)
+    case = next(
+        dataset_case
+        for dataset_case in load_dataset_cases(SUBSET_FIXTURE_PATH)
+        if dataset_case.case_id == "parallel_distinct_tool_calls"
+    )
+
+    async def run_case() -> dict[str, object]:
+        async with ToolCallsValidator(
+            model="kimi-k2",
+            base_url="https://example.test/v1",
+            api_key="demo",
+            output_file=tmp_path / "results.jsonl",
+            summary_file=tmp_path / "summary.json",
+        ) as validator:
+            return await validator.validate_request(case.to_dataset_entry(), data_index=case.data_index)
+
+    result = asyncio.run(run_case())
+
+    assert result["tool_calls_valid"] is True
+    assert result["tool_call_names"] == ["lookup_local_time", "lookup_weather"]
+    assert result["expected_tool_call_names"] == ["lookup_weather", "lookup_local_time"]
+    assert result["tool_call_names_match"] is True
 
 
 def test_save_result_and_update_stats_flushes_summary_after_each_result(tmp_path) -> None:

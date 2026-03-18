@@ -87,3 +87,6 @@ def test_dataset_driven_tool_calling_case(
 
     if case.expected_tool_calls_valid is not None:
         assert result["tool_calls_valid"] is case.expected_tool_calls_valid, response
+
+    if case.expected_tool_call_names:
+        assert result["tool_call_names_match"] is True, response
