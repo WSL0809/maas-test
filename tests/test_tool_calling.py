@@ -1,17 +1,193 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from tests.chat_test_support import FailureArtifactRecorder, get_api_key, resolve_base_url
+from tests.chat_test_support import (
+    CHAT_COMPLETIONS_PATH,
+    FailureArtifactRecorder,
+    get_api_key,
+    request_json,
+    resolve_base_url,
+)
 from k2_verifier.core import DatasetCase, ToolCallsValidator, load_dataset_cases
 
 
 TESTS_DIR = Path(__file__).resolve().parent
 DATASET_PATH = TESTS_DIR / "fixtures" / "k2" / "tool_calling_subset.jsonl"
 DATASET_CASES = load_dataset_cases(DATASET_PATH)
+B7_STABLE_SKIP_MODELS = {"qwen35", "kimi-k25"}
+B7_EXPECTED_TOOL_SEQUENCE = [
+    "fetch_seed_word",
+    "uppercase_word",
+    "decorate_word",
+]
+B7_CHAIN_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_seed_word",
+            "description": "Return a seed word.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                },
+                "required": ["topic"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "uppercase_word",
+            "description": "Uppercase a word.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string"},
+                },
+                "required": ["word"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "decorate_word",
+            "description": "Add a prefix and suffix to a word.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string"},
+                    "prefix": {"type": "string"},
+                    "suffix": {"type": "string"},
+                },
+                "required": ["word", "prefix", "suffix"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
+def _build_b7_payload(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "model": model,
+        "temperature": 0,
+        "max_completion_tokens": 512,
+        "tools": B7_CHAIN_TOOLS,
+        "tool_choice": "auto",
+        "messages": messages,
+    }
+
+
+def _initial_b7_messages() -> list[dict[str, Any]]:
+    return [
+        {"role": "system", "content": "Follow tool instructions exactly."},
+        {
+            "role": "user",
+            "content": (
+                "Use tools only. Call exactly one tool per assistant turn. "
+                "Step 1: call fetch_seed_word with topic='chain-demo'. "
+                "Step 2: after that tool result, call uppercase_word with the returned word. "
+                "Step 3: after that tool result, call decorate_word with the returned uppercase word, "
+                "prefix='[', suffix=']'. "
+                "Step 4: after that tool result, reply with exactly [STONE] and nothing else. "
+                "Do not skip or merge steps."
+            ),
+        },
+    ]
+
+
+def _normalize_tool_call_id(tool_call: dict[str, Any], index: int) -> str:
+    tool_call_id = tool_call.get("id")
+    if isinstance(tool_call_id, str) and tool_call_id:
+        return tool_call_id
+
+    function_name = str(tool_call.get("function", {}).get("name") or "tool")
+    normalized = f"functions.{function_name}:{index}"
+    tool_call["id"] = normalized
+    return normalized
+
+
+def _execute_b7_tool_call(tool_call: dict[str, Any]) -> tuple[str, str]:
+    function = tool_call.get("function") or {}
+    tool_name = str(function.get("name") or "")
+    arguments = json.loads(str(function.get("arguments") or "{}"))
+
+    if tool_name == "fetch_seed_word":
+        assert arguments == {"topic": "chain-demo"}
+        return tool_name, json.dumps({"word": "stone"})
+
+    if tool_name == "uppercase_word":
+        assert arguments == {"word": "stone"}
+        return tool_name, json.dumps({"word": "STONE"})
+
+    if tool_name == "decorate_word":
+        assert arguments == {"word": "STONE", "prefix": "[", "suffix": "]"}
+        return tool_name, json.dumps({"decorated_word": "[STONE]"})
+
+    raise AssertionError(f"Unexpected tool name for B7 chain: {tool_name!r}")
+
+
+def _run_b7_chain(
+    *,
+    model: str,
+    http_client,
+    recorder: FailureArtifactRecorder,
+) -> tuple[list[str], str]:
+    messages = _initial_b7_messages()
+    executed_tool_names: list[str] = []
+
+    for _ in range(len(B7_EXPECTED_TOOL_SEQUENCE) + 1):
+        completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            _build_b7_payload(model, messages),
+            recorder=recorder,
+        )
+        message = completion["choices"][0]["message"]
+        tool_calls = message.get("tool_calls") or []
+
+        if tool_calls:
+            assert isinstance(tool_calls, list)
+            assert len(tool_calls) == 1, completion
+            tool_call = tool_calls[0]
+            assert isinstance(tool_call, dict), completion
+
+            tool_name, tool_result = _execute_b7_tool_call(tool_call)
+            executed_tool_names.append(tool_name)
+            tool_call_id = _normalize_tool_call_id(tool_call, len(executed_tool_names) - 1)
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.get("content"),
+                    "tool_calls": tool_calls,
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": tool_result,
+                }
+            )
+            continue
+
+        content = str(message.get("content") or "").strip()
+        assert content, completion
+        return executed_tool_names, content
+
+    raise AssertionError(f"B7 tool chain did not finish within the expected number of rounds for {model}")
 
 
 async def _run_dataset_case(
@@ -90,3 +266,21 @@ def test_dataset_driven_tool_calling_case(
 
     if case.expected_tool_call_names:
         assert result["tool_call_names_match"] is True, response
+
+
+def test_multi_step_tool_chain_round_trip(
+    model: str,
+    http_client,
+    failure_artifact_recorder: FailureArtifactRecorder,
+) -> None:
+    if model in B7_STABLE_SKIP_MODELS:
+        pytest.skip(f"B7 multi-step tool chain is not in the stable passing path for {model}")
+
+    executed_tool_names, final_text = _run_b7_chain(
+        model=model,
+        http_client=http_client,
+        recorder=failure_artifact_recorder,
+    )
+
+    assert executed_tool_names == B7_EXPECTED_TOOL_SEQUENCE
+    assert final_text.strip().strip("`").strip() == "[STONE]"

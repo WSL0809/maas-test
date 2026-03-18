@@ -37,6 +37,7 @@ TEST_DESCRIPTION_REGISTRY = {
     "test_context_length_finds_a_finite_boundary": "探测上下文边界，并确认存在成功点和溢出点。",
     "test_sdk_create_returns_non_empty_assistant_message": "验证 OpenAI Python SDK 的基础 create 接入。",
     "test_sdk_stream_true_yields_non_empty_text": "验证 OpenAI Python SDK 的基础流式接入。",
+    "test_multi_step_tool_chain_round_trip": "验证多步链式 tool loop 在 3 个工具步骤后生成最终文本。",
     "test_create_returns_tool_call": "验证基础 weather tool call 返回合法工具调用。",
     "test_stream_returns_tool_call": "验证流式 weather tool call 聚合后仍返回合法工具调用。",
     "test_tool_call_round_trip_returns_final_assistant_message": (

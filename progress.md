@@ -2,10 +2,9 @@
 
 ## 2026-03-18
 
-- 定位 B6 定义与当前状态，确认仍为未回填。
-- 检查 tool-calling 套件与 verifier 核心，发现缺少“多工具并行调用”的精确断言与 fixture。
-- 开始补充 B6 基础设施与定向验证。
-- 已修改 verifier metadata / result 结构，并更新 `tests/test_tool_calling.py` 以断言期望的 tool 名称集合。
-- 已新增 `parallel_distinct_tool_calls` fixture，并让 `repeated_same_tool_calls` 也使用精确 tool 名称匹配。
-- 已完成 B6 live 探测，识别出稳定通过模型与失败模型的具体失败形态。
-- 正在做最终回归：单元测试 + B6 targeted pytest。
+- 切换到 B7 任务，确认现有 dataset-driven verifier 不会自动执行多步 tool loop。
+- 在 `tests/test_tool_calling.py` 中新增 `test_multi_step_tool_chain_round_trip`，并实现最小的本地 tool 执行回填逻辑。
+- 用 `fetch_seed_word -> uppercase_word -> decorate_word -> [STONE]` 这条 3 步链验证“工具结果作为下一步输入”。
+- 定向 live 复测结果：`glm5`、`minimax-m21`、`minimax-m25` 通过；`qwen35` 与 `kimi-k25` 当前不稳定。
+- 已完成 B7 文档回填：README、`test_run.md`、`测试功能点.md`、CSV 描述注册。
+- 补跑整份 `tests/test_tool_calling.py` 时发现多个旧 case 在现网后端上漂移失败；该问题已记录，但本轮未扩散修复。

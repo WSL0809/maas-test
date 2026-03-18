@@ -6,7 +6,7 @@
 
 - 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、StructuredOutput
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
-- tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，包括单工具、同消息重复 tool call、同消息并行多工具等路径，默认走 SDK + `httpx` transport
+- tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，以及显式的多步链式 tool loop 回填路径；当前包含单工具、同消息重复 tool call、同消息并行多工具、多步链式 tool loop 等场景
 - SDK smoke 套件：少量官方 Python SDK 接入验证，默认纳入主执行路径
 - K2 verifier：面向外部 JSONL 数据集的大规模 tool-calling 精度验证，默认不进入主套件
 
@@ -398,7 +398,7 @@ SDK smoke 套件位于 [tests/test_chat_sdk_smoke.py](/Users/wangshilong/Downloa
 
 ## Tool Calling 套件
 
-tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/tests/test_tool_calling.py)，默认只保留一个数据集驱动入口：`test_dataset_driven_tool_calling_case`。
+tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downloads/maas-test/tests/test_tool_calling.py)，当前由“数据集驱动入口 + 显式 B7 多步链式 round-trip 测试”两部分组成。
 
 ### 执行方式
 
@@ -417,14 +417,25 @@ tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downlo
 - 若样本预期是普通结束，则只断言 `finish_reason == "stop"` 且响应结构合法
 - 严格的 `finish_reason == "tool_calls"` 口径仍保留给 `python -m k2_verifier.cli` / [k2_verifier/core.py](/Users/wangshilong/Downloads/maas-test/k2_verifier/core.py) 的 K2 verifier 汇总统计
 
+`test_multi_step_tool_chain_round_trip`
+
+- 验证 B7“工具调用-多步链式”场景：要求模型以 3 个独立 assistant turn 依次调用 `fetch_seed_word`、`uppercase_word`、`decorate_word`
+- 每一步都要求“上一步 tool 结果”成为下一步 tool 参数，例如第二步必须把第一步返回的 `stone` 作为 `uppercase_word.word`
+- 最后一轮不再调用工具，而是回填第三步工具结果后输出最终文本 `[STONE]`
+- 默认稳定 passing path 目前为 `glm5`、`minimax-m21`、`minimax-m25`；`qwen35` 与 `kimi-k25` 会在收集阶段跳过
+
 ### 当前默认子集覆盖
 
 - 单工具非流式 tool call
 - 单工具流式 tool call
 - 同一条 assistant 消息中的重复同名 tool call
+- 同一条 assistant 消息中的并行多工具调用
 - 带 `assistant/tool` 历史消息的多轮请求
 - 嵌套数组/对象参数的复杂 schema tool call
+- 3 步链式 tool loop 回填
 
-当前子集会在数据文件元数据里声明不在稳定 passing path 的模型组合；这些组合会在收集阶段直接裁剪，不进入默认结果。比如“重复同名 tool call”目前不会对 `kimi-k25`、`qwen35` 和 `minimax-m21` 执行。
+数据集驱动子集会在数据文件元数据里声明不在稳定 passing path 的模型组合；这些组合会在收集阶段直接裁剪，不进入默认结果。比如“重复同名 tool call”目前不会对 `kimi-k25`、`qwen35` 和 `minimax-m21` 执行。
+
+显式的 B7 链式 round-trip 用例也会做同样的稳定路径过滤：当前默认只对 `glm5`、`minimax-m21`、`minimax-m25` 执行；`qwen35` 会退化到 XML/长度截断路径，`kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`。
 
 如果某个用例失败，可以直接打开 [test_failure_artifacts](/Users/wangshilong/Downloads/maas-test/test_failure_artifacts) 里的最新归档文件复盘请求和响应细节。

@@ -14,7 +14,6 @@ This repository is intentionally small and centered on live API validation.
 - [datasets/k2](/Users/wangshilong/Downloads/maas-test/datasets/k2): manual K2 verifier datasets.
 - [pyproject.toml](/Users/wangshilong/Downloads/maas-test/pyproject.toml): Python project metadata and runtime/test dependencies.
 - [uv.lock](/Users/wangshilong/Downloads/maas-test/uv.lock): locked dependency graph for reproducible installs.
-- [api.md](/Users/wangshilong/Downloads/maas-test/api.md): local API reference snapshot used to scope test coverage.
 - [third_party/vllm](/Users/wangshilong/Downloads/maas-test/third_party/vllm): upstream vLLM source snapshot kept as a git submodule for backend behavior and compatibility reference.
 - [third_party/opencode](/Users/wangshilong/Downloads/maas-test/third_party/opencode): upstream OpenCode source kept as a git submodule for external implementation reference.
 - `.env`: local credentials and endpoint settings for live runs. Keep it local only.

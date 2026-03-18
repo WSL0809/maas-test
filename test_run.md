@@ -54,3 +54,24 @@ uv run pytest -q tests/test_tool_calling.py -k parallel_distinct_tool_calls --ch
   - `glm5`、`minimax-m25`、`kimi-k25` 可稳定返回同一条 assistant 消息中的两个不同 tool calls。
   - `qwen35` 当前会耗尽 completion 长度，只输出 reasoning，不产出结构化 `tool_calls`。
   - `minimax-m21` 当前会以文本/XML 形式写出工具调用并因长度截断，未进入结构化 `tool_calls` 通道。
+
+## B7 工具调用-多步链式
+
+- 对应用例：
+  - `tests/test_tool_calling.py::test_multi_step_tool_chain_round_trip`
+- 默认稳定路径复测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k test_multi_step_tool_chain_round_trip --chat-model glm5 --chat-model minimax-m25 --chat-model minimax-m21 -rx
+```
+
+- 全模型探测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k test_multi_step_tool_chain_round_trip --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 当前已知现象：
+  - `glm5`、`minimax-m21`、`minimax-m25` 可稳定完成 `fetch_seed_word -> uppercase_word -> decorate_word -> [STONE]` 的 3 步链式回填。
+  - `qwen35` 首步可进入工具调用，但第二步会退化为文本/XML 风格的伪工具调用并因长度截断，未进入结构化 `tool_calls`。
+  - `kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`，只剩 reasoning，导致链路无法闭环。
