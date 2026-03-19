@@ -85,6 +85,182 @@ uv run pytest -q tests/test_api_compatibility.py -k 'test_chat_completions_bad_r
   - `429` 采用轻量并发探测；当前环境可能全部返回 `200`，不保证每轮都触发限流
   - `500` 当前可通过 `minimax-m25` forced named `tool_choice` 路径探测；若后端已修复则该用例会 `skip`
 
+## A1 单轮对话
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_returns_non_empty_assistant_message`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_returns_non_empty_assistant_message -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_returns_non_empty_assistant_message --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_returns_non_empty_assistant_message -rx
+```
+
+## A2 多轮对话
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_preserves_multi_turn_context`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_preserves_multi_turn_context -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_preserves_multi_turn_context --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_preserves_multi_turn_context -rx
+```
+
+## A3 System Prompt
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_respects_system_prompt_priority`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_respects_system_prompt_priority -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_respects_system_prompt_priority --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_respects_system_prompt_priority -rx
+```
+
+## A4 流式输出
+
+- 对应用例：
+  - `tests/test_chat.py::test_stream_sse_emits_content_and_done`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_stream_sse_emits_content_and_done -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_stream_sse_emits_content_and_done --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_stream_sse_emits_content_and_done -rx
+```
+
+## A5 非流式输出
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_returns_non_empty_assistant_message`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_returns_non_empty_assistant_message -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_returns_non_empty_assistant_message --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_returns_non_empty_assistant_message -rx
+```
+
+## A8 Max Tokens 限制
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_respects_max_completion_tokens_limit`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_respects_max_completion_tokens_limit -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_respects_max_completion_tokens_limit --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_respects_max_completion_tokens_limit -rx
+```
+
+## A11 多语言能力
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_supports_multilingual_output`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_supports_multilingual_output -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_supports_multilingual_output --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_supports_multilingual_output -rx
+```
+
+## A12 特殊 Token 处理
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_preserves_special_tokens_in_text`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_preserves_special_tokens_in_text -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k test_create_preserves_special_tokens_in_text --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k test_create_preserves_special_tokens_in_text -rx
+```
+
 ## C1 单图理解
 
 - 对应用例：

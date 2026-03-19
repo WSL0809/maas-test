@@ -100,7 +100,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="append",
         default=[],
         dest="cases",
-        help="Repeatable case filter, e.g. --case H1 --case B8.",
+        help=(
+            "Repeatable case filter, e.g. --case H1 --case B8. "
+            "Prefix filters are supported: --case A selects all A* cases; --case A* also works."
+        ),
     )
     parser.add_argument(
         "--chat-model",
@@ -243,11 +246,47 @@ def filter_cases(cases: list[CaseDefinition], requested_cases: list[str]) -> tup
     if not requested_cases:
         return cases, []
 
-    requested = {case_id.strip() for case_id in requested_cases if case_id.strip()}
-    selected_cases = [case for case in cases if case.case_id in requested]
+    requested = [case_id.strip() for case_id in requested_cases if case_id.strip()]
+    requested_exact = {case_id for case_id in requested if not _is_case_prefix_filter(case_id)}
+    requested_prefixes = [_normalize_case_prefix(case_id) for case_id in requested if _is_case_prefix_filter(case_id)]
+    requested_prefixes = [prefix for prefix in requested_prefixes if prefix]
+
+    selected_cases: list[CaseDefinition] = []
+    selected_case_ids: set[str] = set()
+    for case in cases:
+        if case.case_id in requested_exact:
+            selected_cases.append(case)
+            selected_case_ids.add(case.case_id)
+            continue
+        if requested_prefixes and any(case.case_id.startswith(prefix) for prefix in requested_prefixes):
+            selected_cases.append(case)
+            selected_case_ids.add(case.case_id)
+            continue
     known_case_ids = {case.case_id for case in cases}
-    warnings = [f"Requested case {case_id} was not found in test_run.md" for case_id in sorted(requested - known_case_ids)]
+    warnings = [
+        f"Requested case {case_id} was not found in test_run.md"
+        for case_id in sorted(requested_exact - known_case_ids)
+    ]
+    for prefix in sorted(set(requested_prefixes)):
+        if not any(case_id.startswith(prefix) for case_id in known_case_ids):
+            warnings.append(f"Requested case prefix {prefix!r} matched no cases in test_run.md")
     return selected_cases, warnings
+
+
+def _is_case_prefix_filter(case_id: str) -> bool:
+    if not case_id:
+        return False
+    if case_id.endswith("*"):
+        return True
+    return len(case_id) == 1 and case_id.isalpha()
+
+
+def _normalize_case_prefix(case_id: str) -> str:
+    if not case_id:
+        return ""
+    if case_id.endswith("*"):
+        case_id = case_id[:-1]
+    return case_id.strip().upper()
 
 
 def build_output_root(output_arg: str | None) -> tuple[Path, str]:
