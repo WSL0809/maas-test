@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MODULE_PATH = REPO_ROOT / "multi_turn" / "probe_stream_behavior.py"
 SPEC = importlib.util.spec_from_file_location("probe_stream_behavior", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import subprocess
 from pathlib import Path
 
@@ -140,6 +141,18 @@ def test_rewrite_command_args_overrides_existing_chat_model_flags() -> None:
     ]
 
 
+def test_rewrite_command_args_overrides_existing_openai_base_url_flag() -> None:
+    rewritten = main.rewrite_command_args(
+        "uv run pytest -q tests/test_chat.py --OPENAI_BASE_URL http://old.test/v1 -k test_json",
+        Path("/tmp/new-reports"),
+        openai_base_url="http://new.test/v1",
+    )
+
+    assert "--OPENAI_BASE_URL" in rewritten
+    assert "http://old.test/v1" not in rewritten
+    assert "http://new.test/v1" in rewritten
+
+
 def test_aggregate_case_statuses_maps_models_and_merges_minimax(tmp_path: Path) -> None:
     results_csv = tmp_path / "results.csv"
     write_results_csv(
@@ -165,48 +178,10 @@ def test_aggregate_case_statuses_maps_models_and_merges_minimax(tmp_path: Path) 
     }
 
 
-def test_render_report_updates_only_selected_case_rows() -> None:
-    template = """# Matrix
+def test_build_output_root_accepts_legacy_file_path(tmp_path: Path) -> None:
+    output_root, _ = main.build_output_root(str(tmp_path / "reports" / "matrix_report.md"))
 
-## Section
-
-| # | 测试点 | 测试内容 | Qwen 3.5 | Kimi K2.5 | GLM-5 | Minimax 2.1/2.5 | 优先级 |
-|---|---|---|---|---|---|---|---|
-| H1 | Chat | desc | ⏳ | ⏳ | ⏳ | ⏳ | P0 |
-| H2 | Raw | desc | ✅ | ✅ | ✅ | ✅ | P1 |
-"""
-    summaries = [
-        main.CaseExecutionSummary(
-            case_id="H1",
-            title="Chat",
-            command="uv run pytest -q",
-            report_dir="/tmp/reports/H1",
-            exit_code=0,
-            duration_seconds=1.25,
-            statuses={
-                "Qwen 3.5": "✅",
-                "Kimi K2.5": "❌",
-                "GLM-5": "⚠️",
-                "Minimax 2.1/2.5": "✅",
-            },
-        )
-    ]
-
-    rendered = main.render_report(
-        template,
-        summaries,
-        timestamp="20260319-120000",
-        test_run_file=Path("test_run.md"),
-        template_file=Path("draft.md"),
-        output_root=Path("reports/auto/20260319-120000"),
-        manifest_path=Path("reports/auto/20260319-120000/run_manifest.json"),
-        warnings=[],
-    )
-
-    assert "> 自动生成：本报告由 `main.py` 基于当前运行结果回填。" in rendered
-    assert "| H1 | Chat | desc | ✅ | ❌ | ⚠️ | ✅ | P0 |" in rendered
-    assert "| H2 | Raw | desc | ✅ | ✅ | ✅ | ✅ | P1 |" in rendered
-    assert "## 本次执行摘要" in rendered
+    assert output_root == (tmp_path / "reports").resolve()
 
 
 def test_run_cli_end_to_end_with_synthetic_csv(tmp_path: Path, monkeypatch) -> None:
@@ -231,19 +206,7 @@ uv run pytest -q tests/test_chat.py -k b8
 """,
         encoding="utf-8",
     )
-    template_file = tmp_path / "draft.md"
-    template_file.write_text(
-        """# Matrix
-
-| # | 测试点 | 测试内容 | Qwen 3.5 | Kimi K2.5 | GLM-5 | Minimax 2.1/2.5 | 优先级 |
-|---|---|---|---|---|---|---|---|
-| H1 | Chat | desc | ⏳ | ⏳ | ⏳ | ⏳ | P0 |
-| B8 | JSON | desc | ⏳ | ⏳ | ⏳ | ⏳ | P0 |
-| A1 | Base | desc | ✅ | ✅ | ✅ | ✅ | P0 |
-""",
-        encoding="utf-8",
-    )
-    output_file = tmp_path / "reports" / "matrix_report.md"
+    output_root = tmp_path / "reports"
 
     def fake_run(args, cwd, text, capture_output, check):
         assert cwd == main.REPO_ROOT
@@ -280,22 +243,26 @@ uv run pytest -q tests/test_chat.py -k b8
         [
             "--test-run-file",
             str(test_run_file),
-            "--template-file",
-            str(template_file),
             "--output",
-            str(output_file),
+            str(output_root),
         ]
     )
 
-    rendered = output_file.read_text(encoding="utf-8")
-    manifest = (output_file.parent / "run_manifest.json").read_text(encoding="utf-8")
+    manifest = json.loads((output_root / "run_manifest.json").read_text(encoding="utf-8"))
 
     assert exit_code == 0
-    assert "| H1 | Chat | desc | ✅ | ✅ | ✅ | ⚠️ | P0 |" in rendered
-    assert "| B8 | JSON | desc | ✅ | ✅ | ⏳ | ⏳ | P0 |" in rendered
-    assert "| A1 | Base | desc | ✅ | ✅ | ✅ | ✅ | P0 |" in rendered
-    assert '"case_id": "H1"' in manifest
-    assert '"case_id": "B8"' in manifest
+    assert not (output_root / "matrix_report.md").exists()
+    assert manifest["schema"] == "maas-test.main-run-manifest"
+    assert manifest["version"] == 2
+    assert isinstance(manifest.get("output_root"), str) and manifest["output_root"]
+
+    cases = manifest["cases"]
+    assert [case["case_id"] for case in cases] == ["H1", "B8"]
+    for case in cases:
+        assert isinstance(case.get("artifact_dir"), str) and case["artifact_dir"]
+        assert str(case["results_csv"]).endswith("/results.csv")
+        assert str(case["stdout_file"]).endswith("/stdout.txt")
+        assert str(case["stderr_file"]).endswith("/stderr.txt")
 
 
 def test_dry_run_output_uses_effective_chat_model_override() -> None:

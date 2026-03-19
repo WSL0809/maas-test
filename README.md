@@ -48,6 +48,12 @@ uv sync
 uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
+开发者单元测试（不打 live endpoint）：
+
+```bash
+uv run pytest -q tests/unit
+```
+
 显式指定连接地址：
 
 ```bash
@@ -128,9 +134,9 @@ CSV 报告输出：
 - `passed` / `failed` / `skipped` / `total`: 对应维度下的统计计数
 - `pass_rate`: 通过率，按 `passed / total` 计算
 
-## 自动矩阵报告
+## 自动批量执行
 
-仓库根目录提供了 [main.py](/Users/wangshilong/Downloads/maas-test/main.py)，用于读取 [test_run.md](/Users/wangshilong/Downloads/maas-test/test_run.md) 里的默认命令，逐个执行测试，并基于 [draft.md](/Users/wangshilong/Downloads/maas-test/draft.md) 模板生成新的 Markdown 测试矩阵报告。
+仓库根目录提供了 [main.py](/Users/wangshilong/Downloads/maas-test/main.py)，用于读取 [test_run.md](/Users/wangshilong/Downloads/maas-test/test_run.md) 里的默认命令，逐个执行测试，并汇总每个 case 的原始产物与执行清单。
 
 最小运行方式：
 
@@ -138,10 +144,15 @@ CSV 报告输出：
 uv run python main.py
 ```
 
+显式指定 endpoint（不改 .env）：
+
+```bash
+uv run python main.py --base-url http://127.0.0.1:8000/v1
+```
+
 默认输出位置：
 
-- `reports/auto/<timestamp>/matrix_report.md`：本轮生成的矩阵报告
-- `reports/auto/<timestamp>/run_manifest.json`：执行清单，包含 case、命令、退出码、耗时、CSV 目录和告警
+- `reports/auto/<timestamp>/run_manifest.json`：给脚本或大模型消费的执行清单，包含 schema/version、case、命令、退出码、耗时、告警，以及 `results_csv` / `stdout_file` / `stderr_file` 的直接路径
 - `reports/auto/<timestamp>/cases/<CASE_ID>/`：每个测试点对应的 `results.csv`、`stdout.txt`、`stderr.txt`
 
 只跑指定测试点：
@@ -168,10 +179,10 @@ uv run python main.py --case H1 --case B8 --chat-model kimi-k25
 uv run python main.py --dry-run
 ```
 
-显式指定输出文件：
+显式指定输出目录：
 
 ```bash
-uv run python main.py --output reports/manual/latest_matrix.md
+uv run python main.py --output reports/manual/latest_run
 ```
 
 `main.py` 对 [test_run.md](/Users/wangshilong/Downloads/maas-test/test_run.md) 的解析约定：
@@ -179,7 +190,7 @@ uv run python main.py --output reports/manual/latest_matrix.md
 - 每个 `## <CASE_ID>` 小节会被视为一个可执行测试点
 - 同一小节里，标签包含 `默认` 的命令优先；若没有，则回退到 `全模型` / `显式复测` 命令
 - `单模型复测示例` 默认不会被自动执行，除非该小节没有其他可运行命令
-- 如果同一小节出现多个默认命令，当前实现会选择第一个，并在报告尾部写入告警
+- 如果同一小节出现多个默认命令，当前实现会选择第一个，并在 `run_manifest.json` 里写入告警
 - 传入 `--chat-model` 后，`main.py` 会覆盖原命令里的 `--chat-model ...` 参数，只保留你显式传入的模型列表
 
 ## K2 Verifier

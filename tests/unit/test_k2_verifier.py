@@ -18,7 +18,8 @@ from k2_verifier.core import (
 )
 
 
-TESTS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+TESTS_DIR = REPO_ROOT / "tests"
 FIXTURE_PATH = TESTS_DIR / "fixtures" / "k2" / "verifier_smoke.jsonl"
 SUBSET_FIXTURE_PATH = TESTS_DIR / "fixtures" / "k2" / "tool_calling_subset.jsonl"
 

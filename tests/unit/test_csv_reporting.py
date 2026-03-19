@@ -9,7 +9,7 @@ import pytest
 
 pytest_plugins = ("pytester",)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def install_repo_plugin(pytester: pytest.Pytester) -> None:

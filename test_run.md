@@ -4,7 +4,7 @@
 
 - 每个 `## <CASE_ID>` 小节都应保留一个明确标注的默认命令。
 - 标签里包含 `默认` 的命令会被 `main.py` 优先选择。
-- 如果同一小节出现多个 `默认...命令`，`main.py` 当前会只取第一个，并在生成报告时写入告警。
+- 如果同一小节出现多个 `默认...命令`，`main.py` 当前会只取第一个，并在 `run_manifest.json` 里写入告警。
 - `单模型复测示例` 默认只用于人工复查；只有当该小节没有其他可运行命令时，`main.py` 才会退回使用它。
 
 ## H1 Chat Completions 兼容
@@ -144,20 +144,26 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_return
 - 对应用例：
   - `tests/test_chat.py::test_create_accepts_chat_template_kwargs_enable_thinking_false`
   - `tests/test_chat.py::test_stream_accepts_chat_template_kwargs_enable_thinking_false`
-- 默认模型矩阵复测命令：
+- 默认模型矩阵复测命令（同时覆盖 B2-A + B2-B）：
 
 ```bash
-uv run pytest -q tests/test_chat.py -k 'test_create_accepts_chat_template_kwargs_enable_thinking_false or test_stream_accepts_chat_template_kwargs_enable_thinking_false'
+uv run pytest -q tests/test_chat.py -k 'test_create_accepts_chat_template_kwargs_enable_thinking_false or test_stream_accepts_chat_template_kwargs_enable_thinking_false or test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
 ```
 
 - B2-B 严格 suppress reasoning
 - 对应用例：
   - `tests/test_chat.py::test_create_suppresses_reasoning_when_thinking_disabled`
   - `tests/test_chat.py::test_stream_suppresses_reasoning_when_thinking_disabled`
-- 默认模型矩阵复测命令：
+- B2-B 单独复测命令：
 
 ```bash
 uv run pytest -q tests/test_chat.py -k 'test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
+```
+
+- B2-A 单独复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k 'test_create_accepts_chat_template_kwargs_enable_thinking_false or test_stream_accepts_chat_template_kwargs_enable_thinking_false'
 ```
 
 - 单模型复测示例：
