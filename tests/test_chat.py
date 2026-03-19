@@ -854,7 +854,7 @@ class TestKimiK25ChatCompletions(BaseOpenAICompatibleChatTests):
 
 class TestGLM5ChatCompletions(BaseRelaxedToolChoiceChatTests):
     __test__ = True
-    MODEL_NAME = "glm5"
+    MODEL_NAME = "glm-5"
     EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED = True
     EXPECTS_JSON_MODE_PAYLOAD_IN_CONTENT = False
 

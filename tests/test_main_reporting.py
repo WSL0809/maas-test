@@ -23,7 +23,7 @@ def test_parser_selects_default_command_over_full_and_single_model() -> None:
 - 全模型显式复测命令：
 
 ```bash
-uv run pytest -q tests/test_api_compatibility.py -k h1 --chat-model glm5 --chat-model qwen35
+uv run pytest -q tests/test_api_compatibility.py -k h1 --chat-model glm-5 --chat-model qwen35
 ```
 
 - 默认模型矩阵复测命令：
@@ -61,7 +61,7 @@ uv run pytest -q tests/test_chat.py -k test_json_mode_returns_valid_json_object
 - 单模型复测示例：
 
 ```bash
-uv run pytest -q tests/test_chat.py -k test_json_mode_returns_valid_json_object --chat-model glm5
+uv run pytest -q tests/test_chat.py -k test_json_mode_returns_valid_json_object --chat-model glm-5
 ```
 """
 
@@ -119,7 +119,7 @@ def test_rewrite_command_args_overrides_existing_chat_model_flags() -> None:
     rewritten = main.rewrite_command_args(
         (
             "uv run pytest -q tests/test_api_compatibility.py -k h1 "
-            "--chat-model glm5 --chat-model qwen35"
+            "--chat-model glm-5 --chat-model qwen35"
         ),
         Path("/tmp/new-reports"),
         ["kimi-k25"],
@@ -147,8 +147,8 @@ def test_aggregate_case_statuses_maps_models_and_merges_minimax(tmp_path: Path) 
         [
             {"model": "qwen35", "outcome": "passed"},
             {"model": "kimi-k25", "outcome": "failed"},
-            {"model": "glm5", "outcome": "passed"},
-            {"model": "glm5", "outcome": "skipped"},
+            {"model": "glm-5", "outcome": "passed"},
+            {"model": "glm-5", "outcome": "skipped"},
             {"model": "minimax-m21", "outcome": "passed"},
             {"model": "minimax-m25", "outcome": "passed"},
         ],
@@ -259,7 +259,7 @@ uv run pytest -q tests/test_chat.py -k b8
                 [
                     {"model": "qwen35", "outcome": "passed"},
                     {"model": "kimi-k25", "outcome": "passed"},
-                    {"model": "glm5", "outcome": "passed"},
+                    {"model": "glm-5", "outcome": "passed"},
                     {"model": "minimax-m21", "outcome": "passed"},
                     {"model": "minimax-m25", "outcome": "failed"},
                 ],
@@ -306,12 +306,12 @@ def test_dry_run_output_uses_effective_chat_model_override() -> None:
             command_blocks=(
                 main.CommandBlock(
                     label="全模型显式复测命令",
-                    command="uv run pytest -q tests/test_api_compatibility.py --chat-model glm5 --chat-model qwen35",
+                    command="uv run pytest -q tests/test_api_compatibility.py --chat-model glm-5 --chat-model qwen35",
                 ),
             ),
             selected_command=main.CommandBlock(
                 label="全模型显式复测命令",
-                command="uv run pytest -q tests/test_api_compatibility.py --chat-model glm5 --chat-model qwen35",
+                command="uv run pytest -q tests/test_api_compatibility.py --chat-model glm-5 --chat-model qwen35",
             ),
         )
     ]
@@ -319,5 +319,5 @@ def test_dry_run_output_uses_effective_chat_model_override() -> None:
     output = main.dry_run_output(cases, [], ["kimi-k25"])
 
     assert "--chat-model kimi-k25" in output
-    assert "--chat-model glm5" not in output
+    assert "--chat-model glm-5" not in output
     assert "--chat-model qwen35" not in output

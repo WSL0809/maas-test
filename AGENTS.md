@@ -29,7 +29,7 @@ This repository is intentionally small and centered on live API validation.
 
 - `uv sync`: install and lock the project environment from `pyproject.toml` and `uv.lock`.
 - `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py`: run the default per-model optimized live suite.
-- `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25`: run the optimized suite against a chosen model matrix.
+- `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25`: run the optimized suite against a chosen model matrix.
 - `uv run pytest -q tests/test_chat_sdk_smoke.py --run-sdk-smoke`: run the OpenAI SDK smoke suite.
 - `uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --run-sdk-smoke`: run the default suite plus SDK smoke.
 

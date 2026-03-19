@@ -290,7 +290,7 @@ def test_unknown_route_returns_openai_error_shape(
 
 class TestGLM5RateLimitProbe:
     __test__ = True
-    MODEL_NAME = "glm5"
+    MODEL_NAME = "glm-5"
 
     def test_light_rate_limit_probe_returns_only_200_or_429(
         self,

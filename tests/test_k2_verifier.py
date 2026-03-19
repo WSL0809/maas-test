@@ -251,7 +251,7 @@ def test_load_dataset_cases_reads_metadata_and_skip_models() -> None:
 
     repeated = next(case for case in cases if case.case_id == "repeated_same_tool_calls")
     assert repeated.should_skip_model("kimi-k25") is True
-    assert repeated.should_skip_model("glm5") is False
+    assert repeated.should_skip_model("glm-5") is False
     assert repeated.expected_tool_call_names == (
         "collect_weather_args",
         "collect_weather_args",
@@ -264,7 +264,7 @@ def test_load_dataset_cases_reads_metadata_and_skip_models() -> None:
     )
     assert parallel.should_skip_model("qwen35") is True
     assert parallel.should_skip_model("minimax-m21") is True
-    assert parallel.should_skip_model("glm5") is False
+    assert parallel.should_skip_model("glm-5") is False
 
 
 def test_validate_request_processes_single_dataset_case(monkeypatch, tmp_path) -> None:

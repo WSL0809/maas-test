@@ -65,13 +65,13 @@ uv run pytest -q tests/test_chat_sdk_smoke.py
 运行指定模型：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
 ```
 
 也可以通过环境变量一次指定多个模型：
 
 ```bash
-OPENAI_CHAT_TEST_MODELS=glm5,qwen35 uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
+OPENAI_CHAT_TEST_MODELS=glm-5,qwen35 uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py
 ```
 
 输出可读 CSV 报告：
@@ -83,7 +83,7 @@ uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_c
 运行指定模型并输出 CSV：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm5 --chat-model qwen35 --csv-report-dir=reports
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm-5 --chat-model qwen35 --csv-report-dir=reports
 ```
 
 失败用例归档：
@@ -153,7 +153,7 @@ uv run python main.py --case H1 --case B8
 只跑指定模型的 `test_run.md` 测试点：
 
 ```bash
-uv run python main.py --chat-model glm5
+uv run python main.py --chat-model glm-5
 ```
 
 也可以同时缩小到指定 case + 指定模型：
@@ -418,14 +418,14 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 如果命令行显式传了 `--chat-model`，基础 chat 套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
 
-基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径和 JSON Mode 路径都允许按模型类做最小差异化；当前 JSON Mode 在 `glm5`、`minimax-m21`、`minimax-m25` 上会以 `xfail` 记录通道差异（JSON 落在 `message.reasoning`）。
+基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径和 JSON Mode 路径都允许按模型类做最小差异化；当前 JSON Mode 在 `glm-5`、`minimax-m21`、`minimax-m25` 上会以 `xfail` 记录通道差异（JSON 落在 `message.reasoning`）。
 
 ### 模型接口返回特点
 
 | 模型 | 基础 `create` / `stream` | `enable_thinking=false` 行为 | tools 行为 | StructuredOutput 行为 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | `kimi-k25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop`；JSON Mode 可在 `message.content` 返回 JSON |
-| `glm5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+| `glm-5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
 | `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
 | `minimax-m25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
 | `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
@@ -477,7 +477,7 @@ API compatibility 套件位于 [tests/test_api_compatibility.py](/Users/wangshil
 `test_light_rate_limit_probe_returns_only_200_or_429`
 
 - 对齐 H5 的 `429 Too Many Requests` 探测
-- 对 `glm5` 发起轻量并发请求，观察服务是否出现限流
+- 对 `glm-5` 发起轻量并发请求，观察服务是否出现限流
 - 如果出现 `429`，要求错误体仍保持 OpenAI-compatible 形状；如果全部为 `200` 也视为本轮探测通过
 
 `test_forced_named_tool_choice_returns_openai_error_shape_when_upstream_500_reproduces`
@@ -554,7 +554,7 @@ tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downlo
 - 验证 B7“工具调用-多步链式”场景：要求模型以 3 个独立 assistant turn 依次调用 `fetch_seed_word`、`uppercase_word`、`decorate_word`
 - 每一步都要求“上一步 tool 结果”成为下一步 tool 参数，例如第二步必须把第一步返回的 `stone` 作为 `uppercase_word.word`
 - 最后一轮不再调用工具，而是回填第三步工具结果后输出最终文本 `[STONE]`
-- 默认稳定 passing path 目前为 `glm5`、`minimax-m21`、`minimax-m25`；`qwen35` 与 `kimi-k25` 会在收集阶段跳过
+- 默认稳定 passing path 目前为 `glm-5`、`minimax-m21`、`minimax-m25`；`qwen35` 与 `kimi-k25` 会在收集阶段跳过
 
 ### 当前默认子集覆盖
 
@@ -568,6 +568,6 @@ tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downlo
 
 数据集驱动子集会在数据文件元数据里声明不在稳定 passing path 的模型组合；这些组合会在收集阶段直接裁剪，不进入默认结果。比如“重复同名 tool call”目前不会对 `kimi-k25`、`qwen35` 和 `minimax-m21` 执行。
 
-显式的 B7 链式 round-trip 用例也会做同样的稳定路径过滤：当前默认只对 `glm5`、`minimax-m21`、`minimax-m25` 执行；`qwen35` 会退化到 XML/长度截断路径，`kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`。
+显式的 B7 链式 round-trip 用例也会做同样的稳定路径过滤：当前默认只对 `glm-5`、`minimax-m21`、`minimax-m25` 执行；`qwen35` 会退化到 XML/长度截断路径，`kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`。
 
 如果某个用例失败，可以直接打开 [test_failure_artifacts](/Users/wangshilong/Downloads/maas-test/test_failure_artifacts) 里的最新归档文件复盘请求和响应细节。

@@ -19,11 +19,11 @@ DEFAULT_TEST_RUN_FILE = REPO_ROOT / "test_run.md"
 DEFAULT_TEMPLATE_FILE = REPO_ROOT / "draft.md"
 DEFAULT_REPORTS_DIR = REPO_ROOT / "reports" / "auto"
 SUMMARY_STATUS_COLUMNS = ("Qwen 3.5", "Kimi K2.5", "GLM-5", "Minimax 2.1/2.5")
-KNOWN_MODEL_IDS = ("qwen35", "kimi-k25", "glm5", "minimax-m21", "minimax-m25")
+KNOWN_MODEL_IDS = ("qwen35", "kimi-k25", "glm-5", "minimax-m21", "minimax-m25")
 MODEL_TO_COLUMN = {
     "qwen35": "Qwen 3.5",
     "kimi-k25": "Kimi K2.5",
-    "glm5": "GLM-5",
+    "glm-5": "GLM-5",
 }
 STATUS_PASS = "✅"
 STATUS_FAIL = "❌"
