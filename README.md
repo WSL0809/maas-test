@@ -128,6 +128,60 @@ CSV 报告输出：
 - `passed` / `failed` / `skipped` / `total`: 对应维度下的统计计数
 - `pass_rate`: 通过率，按 `passed / total` 计算
 
+## 自动矩阵报告
+
+仓库根目录提供了 [main.py](/Users/wangshilong/Downloads/maas-test/main.py)，用于读取 [test_run.md](/Users/wangshilong/Downloads/maas-test/test_run.md) 里的默认命令，逐个执行测试，并基于 [draft.md](/Users/wangshilong/Downloads/maas-test/draft.md) 模板生成新的 Markdown 测试矩阵报告。
+
+最小运行方式：
+
+```bash
+uv run python main.py
+```
+
+默认输出位置：
+
+- `reports/auto/<timestamp>/matrix_report.md`：本轮生成的矩阵报告
+- `reports/auto/<timestamp>/run_manifest.json`：执行清单，包含 case、命令、退出码、耗时、CSV 目录和告警
+- `reports/auto/<timestamp>/cases/<CASE_ID>/`：每个测试点对应的 `results.csv`、`stdout.txt`、`stderr.txt`
+
+只跑指定测试点：
+
+```bash
+uv run python main.py --case H1 --case B8
+```
+
+只跑指定模型的 `test_run.md` 测试点：
+
+```bash
+uv run python main.py --chat-model glm5
+```
+
+也可以同时缩小到指定 case + 指定模型：
+
+```bash
+uv run python main.py --case H1 --case B8 --chat-model kimi-k25
+```
+
+只查看将要执行的命令，不真正运行：
+
+```bash
+uv run python main.py --dry-run
+```
+
+显式指定输出文件：
+
+```bash
+uv run python main.py --output reports/manual/latest_matrix.md
+```
+
+`main.py` 对 [test_run.md](/Users/wangshilong/Downloads/maas-test/test_run.md) 的解析约定：
+
+- 每个 `## <CASE_ID>` 小节会被视为一个可执行测试点
+- 同一小节里，标签包含 `默认` 的命令优先；若没有，则回退到 `全模型` / `显式复测` 命令
+- `单模型复测示例` 默认不会被自动执行，除非该小节没有其他可运行命令
+- 如果同一小节出现多个默认命令，当前实现会选择第一个，并在报告尾部写入告警
+- 传入 `--chat-model` 后，`main.py` 会覆盖原命令里的 `--chat-model ...` 参数，只保留你显式传入的模型列表
+
 ## K2 Verifier
 
 K2 verifier 是一条独立的补充评测通道，用来对外部 JSONL 请求集做大规模 tool-calling 验证。它不会进入默认 `pytest` 主套件，也不会写入 `test_failure_artifacts/`。
