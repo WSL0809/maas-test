@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import re
 import shlex
 import subprocess
@@ -17,6 +18,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_TEST_RUN_FILE = REPO_ROOT / "test_run.md"
 DEFAULT_REPORTS_DIR = REPO_ROOT / "reports" / "auto"
+logger = logging.getLogger("maas-test.main")
 KNOWN_MODEL_IDS = ("qwen35", "kimi-k25", "glm-5", "minimax-m21", "minimax-m25")
 MODEL_TO_COLUMN = {
     "qwen35": "Qwen 3.5",
@@ -111,6 +113,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Print the selected cases and commands without executing them.",
+    )
+    parser.add_argument(
+        "--live-output",
+        action="store_true",
+        help="Stream each pytest command's stdout/stderr to the terminal while also writing stdout.txt/stderr.txt.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable debug logging for main.py execution progress.",
     )
     return parser.parse_args(argv)
 
@@ -248,6 +260,14 @@ def build_output_root(output_arg: str | None) -> tuple[Path, str]:
     return output_root, timestamp
 
 
+def configure_logging(verbose: bool) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
 def rewrite_command_args(
     command: str,
     report_dir: Path,
@@ -292,6 +312,10 @@ def execute_case(
     output_root: Path,
     chat_models: list[str] | None = None,
     openai_base_url: str | None = None,
+    live_output: bool = False,
+    *,
+    index: int,
+    total: int,
 ) -> CaseExecutionSummary:
     case_dir = output_root / "cases" / case.case_id
     results_csv_path = case_dir / "results.csv"
@@ -305,19 +329,38 @@ def execute_case(
         openai_base_url=openai_base_url,
     )
     start = time.perf_counter()
+    logger.info(
+        "[%s/%s] START %s %s",
+        index,
+        total,
+        case.case_id,
+        case.title,
+    )
+    logger.info("  label: %s", case.selected_command.label or "<unlabeled>")
+    logger.info("  artifacts: %s", case_dir)
+    logger.info("  command: %s", shlex.join(command_args))
 
     try:
-        completed = subprocess.run(
-            command_args,
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        exit_code = completed.returncode
-        error_message = ""
-        stdout_text = completed.stdout
-        stderr_text = completed.stderr
+        if live_output:
+            exit_code, stdout_text, stderr_text = run_command_live(
+                command_args,
+                cwd=REPO_ROOT,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+            )
+            error_message = ""
+        else:
+            completed = subprocess.run(
+                command_args,
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            exit_code = completed.returncode
+            error_message = ""
+            stdout_text = completed.stdout
+            stderr_text = completed.stderr
     except OSError as exc:
         exit_code = None
         error_message = str(exc)
@@ -325,12 +368,29 @@ def execute_case(
         stderr_text = ""
 
     duration_seconds = time.perf_counter() - start
-    stdout_path.write_text(stdout_text, encoding="utf-8")
-    stderr_path.write_text(stderr_text, encoding="utf-8")
+    if not live_output:
+        stdout_path.write_text(stdout_text, encoding="utf-8")
+        stderr_path.write_text(stderr_text, encoding="utf-8")
+    elif exit_code is None and error_message:
+        # If we failed to start the subprocess, still materialize the expected files.
+        stdout_path.write_text("", encoding="utf-8")
+        stderr_path.write_text(f"{error_message}\n", encoding="utf-8")
 
     statuses, aggregation_error = aggregate_case_statuses(results_csv_path)
     if aggregation_error:
         error_message = f"{error_message}; {aggregation_error}".strip("; ")
+
+    logger.info(
+        "[%s/%s] END   %s exit=%s duration=%.2fs results=%s",
+        index,
+        total,
+        case.case_id,
+        exit_code,
+        duration_seconds,
+        results_csv_path,
+    )
+    if error_message:
+        logger.warning("[%s/%s] %s error: %s", index, total, case.case_id, error_message)
 
     return CaseExecutionSummary(
         case_id=case.case_id,
@@ -345,6 +405,63 @@ def execute_case(
         error_message=error_message,
         statuses=statuses,
     )
+
+
+def run_command_live(
+    command_args: list[str],
+    *,
+    cwd: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+) -> tuple[int, str, str]:
+    # Tee subprocess output to both files and the current terminal. We intentionally
+    # don't keep output in memory; the returned strings are empty placeholders.
+    import threading
+
+    def pump(stream: Any, sink: Any, mirror: Any) -> None:
+        try:
+            for line in stream:
+                sink.write(line)
+                sink.flush()
+                mirror.write(line)
+                mirror.flush()
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open(
+        "w", encoding="utf-8"
+    ) as stderr_handle:
+        proc = subprocess.Popen(
+            command_args,
+            cwd=cwd,
+            text=True,
+            bufsize=1,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        assert proc.stderr is not None
+
+        t_out = threading.Thread(
+            target=pump,
+            args=(proc.stdout, stdout_handle, sys.stdout),
+            daemon=True,
+        )
+        t_err = threading.Thread(
+            target=pump,
+            args=(proc.stderr, stderr_handle, sys.stderr),
+            daemon=True,
+        )
+        t_out.start()
+        t_err.start()
+        returncode = proc.wait()
+        t_out.join(timeout=10)
+        t_err.join(timeout=10)
+
+    return returncode, "", ""
 
 
 def aggregate_case_statuses(results_csv_path: Path) -> tuple[dict[str, str], str]:
@@ -449,6 +566,7 @@ def dry_run_output(
 
 def run_cli(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    configure_logging(args.verbose)
     test_run_file = Path(args.test_run_file).expanduser().resolve()
 
     try:
@@ -473,6 +591,15 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     output_root, timestamp = build_output_root(args.output)
     output_root.mkdir(parents=True, exist_ok=True)
+    logger.info("Selected %d case(s). Output root: %s", len(cases), output_root)
+    if args.openai_base_url:
+        logger.info("OPENAI_BASE_URL override: %s", args.openai_base_url)
+    if args.chat_models:
+        logger.info("Chat model override(s): %s", ", ".join(args.chat_models))
+    if args.live_output:
+        logger.info("Live output: enabled (pytest stdout/stderr will stream to terminal)")
+    for warning in all_warnings:
+        logger.warning("%s", warning)
 
     summaries = [
         execute_case(
@@ -480,8 +607,11 @@ def run_cli(argv: list[str] | None = None) -> int:
             output_root,
             args.chat_models,
             openai_base_url=args.openai_base_url,
+            live_output=args.live_output,
+            index=index,
+            total=len(cases),
         )
-        for case in cases
+        for index, case in enumerate(cases, start=1)
     ]
     runtime_warnings = [summary.error_message for summary in summaries if summary.error_message]
     manifest_path = output_root / "run_manifest.json"
