@@ -401,6 +401,20 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - SSE 聚合后的 `stream_result.reasoning` 为 `null` 视为通过
 - 对当前已知仍会返回 reasoning 片段的模型，记录为 `xfail`，便于单独追踪 suppress reasoning 行为
 
+`test_create_switches_thinking_to_instant_within_same_conversation`
+
+- 对齐 B3“思考模式切换”：同一会话内先开启 thinking，再切到 instant
+- 第一轮开启 `chat_template_kwargs.enable_thinking=true`，断言非流式返回 `message.reasoning` 非空且最终答案包含 `43`
+- 将上一轮 assistant 文本追加到 history，第二轮切到 `chat_template_kwargs.enable_thinking=false` 并要求回复 `quartz`
+- 检查第二轮返回文本包含 `quartz`，并复用 B2 的 suppress reasoning 口径对第二轮 `message.reasoning` 做校验（不符合则记为 `xfail`）
+
+`test_create_switches_instant_to_thinking_within_same_conversation`
+
+- 对齐 B3“思考模式切换”：同一会话内先关闭 thinking，再切到 thinking
+- 第一轮使用 `chat_template_kwargs.enable_thinking=false` 要求回复 `quartz`，验证 instant 请求可用
+- 将上一轮 assistant 文本追加到 history，第二轮切到 `chat_template_kwargs.enable_thinking=true` 并提固定算术题
+- 检查第二轮非流式返回 `message.reasoning` 非空，且最终答案包含 `43`
+
 `test_structured_output_tool_returns_valid_arguments`
 
 - 验证 `StructuredOutput` 工具风格的结构化输出路径是否可用

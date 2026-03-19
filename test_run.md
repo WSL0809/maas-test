@@ -352,6 +352,60 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_accept
 uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
 ```
 
+## B3 思考模式切换
+
+- 对应用例：
+  - `tests/test_chat.py::test_create_switches_thinking_to_instant_within_same_conversation`
+  - `tests/test_chat.py::test_create_switches_instant_to_thinking_within_same_conversation`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k 'test_create_switches_thinking_to_instant_within_same_conversation or test_create_switches_instant_to_thinking_within_same_conversation' -rxX
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_chat.py -k 'test_create_switches_thinking_to_instant_within_same_conversation or test_create_switches_instant_to_thinking_within_same_conversation' --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rxX
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_switches_thinking_to_instant_within_same_conversation or test_create_switches_instant_to_thinking_within_same_conversation' -rxX
+```
+
+- 当前已知现象：
+  - 首次接入：用于验证同一 messages history 下 `chat_template_kwargs.enable_thinking` 从 `true↔false` 切换的请求可用性。
+  - `enable_thinking=false` 下 reasoning 的严格 suppress 口径与 B2 保持一致：若仍返回 reasoning，则以 `xfail` 记录。
+
+## B4 工具调用-单工具
+
+- 对应用例：
+  - `tests/fixtures/k2/tool_calling_subset.jsonl` 中的 `single_tool_nonstream`
+  - `tests/fixtures/k2/tool_calling_subset.jsonl` 中的 `single_tool_stream`
+- 默认模型矩阵复测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k 'single_tool_nonstream or single_tool_stream' -rx
+```
+
+- 全模型显式复测命令：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py -k 'single_tool_nonstream or single_tool_stream' --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25 -rx
+```
+
+- 单模型复测示例：
+
+```bash
+uv run pytest -q tests/test_tool_calling.py --chat-model kimi-k25 -k 'single_tool_nonstream or single_tool_stream' -rx
+```
+
+- 当前已知现象：
+  - `kimi-k25` 当前可稳定通过。
+  - `glm-5`、`qwen35`、`minimax-m21`、`minimax-m25` 在当前后端上可能复现 `500` / `upstream_error` 等失败（以实时结果为准）。
+
 ## B6 工具调用-并行调用
 
 - 对应用例：

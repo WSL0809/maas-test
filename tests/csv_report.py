@@ -33,6 +33,12 @@ TEST_DESCRIPTION_REGISTRY = {
     "test_stream_suppresses_reasoning_when_thinking_disabled": (
         "严格验证 stream 请求在 enable_thinking=false 时不会返回 reasoning。"
     ),
+    "test_create_switches_thinking_to_instant_within_same_conversation": (
+        "验证同一会话内 enable_thinking 从 true 切到 false 后仍可正常返回，并按 suppress reasoning 口径校验。"
+    ),
+    "test_create_switches_instant_to_thinking_within_same_conversation": (
+        "验证同一会话内 enable_thinking 从 false 切到 true 后返回非空 reasoning。"
+    ),
     "test_structured_output_tool_returns_valid_arguments": "验证 StructuredOutput 工具调用返回合法参数。",
     "test_json_mode_returns_valid_json_object": "验证 response_format=json_object 返回合法 JSON 对象。",
     "test_context_length_finds_a_finite_boundary": "探测上下文边界，并确认存在成功点和溢出点。",

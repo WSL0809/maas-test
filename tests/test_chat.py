@@ -792,6 +792,121 @@ class BaseHTTPXChatTests:
             transport="stream",
         )
 
+    def test_create_switches_thinking_to_instant_within_same_conversation(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        thinking_payload = self.build_enable_thinking_payload()
+        thinking_completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            thinking_payload,
+            recorder=failure_artifact_recorder,
+        )
+        thinking_message = thinking_completion["choices"][0]["message"]
+        thinking_content = str(thinking_message["content"])
+        thinking_reasoning = thinking_message.get("reasoning")
+
+        assert thinking_completion["object"] == "chat.completion"
+        assert thinking_message["role"] == "assistant"
+        assert thinking_content.strip()
+        assert "43" in thinking_content
+        assert isinstance(thinking_reasoning, str)
+        assert thinking_reasoning.strip()
+
+        messages = list(thinking_payload["messages"])
+        messages.append({"role": "assistant", "content": thinking_content})
+        messages.append(
+            {
+                "role": "user",
+                "content": "Now reply with the single word quartz.",
+            }
+        )
+
+        instant_payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "messages": messages,
+        }
+        instant_payload.update(self.create_request_overrides())
+        instant_completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            instant_payload,
+            recorder=failure_artifact_recorder,
+        )
+
+        instant_message = instant_completion["choices"][0]["message"]
+        assert instant_completion["object"] == "chat.completion"
+        assert instant_message["role"] == "assistant"
+        assert isinstance(instant_message["content"], str)
+        assert "quartz" in instant_message["content"].lower()
+
+        self.assert_disable_thinking_reasoning_suppressed(
+            normalize_reasoning_content(instant_message.get("reasoning")),
+            transport="create",
+        )
+
+    def test_create_switches_instant_to_thinking_within_same_conversation(
+        self,
+        http_client: httpx.Client,
+        failure_artifact_recorder: FailureArtifactRecorder,
+    ) -> None:
+        instant_payload = self.build_disable_thinking_payload()
+        instant_completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            instant_payload,
+            recorder=failure_artifact_recorder,
+        )
+        instant_message = instant_completion["choices"][0]["message"]
+
+        assert instant_completion["object"] == "chat.completion"
+        assert instant_message["role"] == "assistant"
+        assert isinstance(instant_message["content"], str)
+        assert "quartz" in instant_message["content"].lower()
+
+        messages = list(instant_payload["messages"])
+        messages.append({"role": "assistant", "content": instant_message["content"]})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Solve 17 + 26. Think through it first, then reply with only the final "
+                    "answer."
+                ),
+            }
+        )
+
+        thinking_payload: dict[str, object] = {
+            "model": self.MODEL_NAME,
+            "temperature": 0,
+            "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": True},
+            "messages": messages,
+        }
+        thinking_payload.update(self.create_request_overrides())
+        thinking_completion = request_json(
+            http_client,
+            CHAT_COMPLETIONS_PATH,
+            thinking_payload,
+            recorder=failure_artifact_recorder,
+        )
+
+        thinking_message = thinking_completion["choices"][0]["message"]
+        thinking_content = str(thinking_message["content"])
+        thinking_reasoning = thinking_message.get("reasoning")
+
+        assert thinking_completion["object"] == "chat.completion"
+        assert thinking_message["role"] == "assistant"
+        assert thinking_content.strip()
+        assert "43" in thinking_content
+        assert isinstance(thinking_reasoning, str)
+        assert thinking_reasoning.strip()
+
     def test_structured_output_tool_returns_valid_arguments(
         self,
         http_client: httpx.Client,
