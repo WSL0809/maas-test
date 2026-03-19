@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import re
 import shlex
 import subprocess
@@ -13,6 +14,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -33,6 +35,7 @@ CASE_HEADING_RE = re.compile(r"^##\s+([A-Z]\d+)\b(.*)$")
 FENCE_START_RE = re.compile(r"^\s*```(?:bash|sh)\s*$")
 FENCE_END_RE = re.compile(r"^\s*```\s*$")
 LABEL_RE = re.compile(r"^\s*-\s+(.+?)\s*[：:]\s*$")
+DEFAULT_CONNECTIVITY_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print the selected cases and commands without executing them.",
     )
     parser.add_argument(
+        "--skip-connectivity-check",
+        action="store_true",
+        help="Skip the preflight connectivity probe against OPENAI_BASE_URL.",
+    )
+    parser.add_argument(
         "--live-output",
         action="store_true",
         help="Stream each pytest command's stdout/stderr to the terminal while also writing stdout.txt/stderr.txt.",
@@ -128,6 +136,139 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Enable debug logging for main.py execution progress.",
     )
     return parser.parse_args(argv)
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if value and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+
+        values[key] = value
+
+    return values
+
+
+def _load_dotenv(path: Path) -> None:
+    for key, value in _parse_env_file(path).items():
+        os.environ.setdefault(key, value)
+
+
+def _normalize_base_url(base_url: str) -> tuple[str, str]:
+    """
+    Return (normalized_url, warning).
+
+    Normalization ensures:
+    - the URL is a valid http(s) URL
+    - a /v1 suffix exists (OpenAI-compatible endpoints)
+    - no trailing slash
+    """
+    raw = base_url.strip()
+    if not raw:
+        return "", "OPENAI_BASE_URL is empty"
+
+    parts = urlsplit(raw)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return "", f"Invalid OPENAI_BASE_URL (expected http(s) URL): {base_url!r}"
+
+    path = (parts.path or "").rstrip("/")
+    warning = ""
+    if not path.endswith("/v1"):
+        warning = f"OPENAI_BASE_URL did not end with /v1; normalized from {base_url!r}"
+        path = f"{path}/v1" if path else "/v1"
+
+    normalized = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    return normalized, warning
+
+
+def _build_probe_url(normalized_base_url: str) -> str:
+    return f"{normalized_base_url.rstrip('/')}/models"
+
+
+def check_connectivity(
+    *,
+    openai_base_url: str | None,
+    timeout_seconds: float = DEFAULT_CONNECTIVITY_TIMEOUT_SECONDS,
+) -> tuple[bool, str, str | None]:
+    """
+    Probe the OpenAI-compatible endpoint before running live tests.
+
+    Returns (ok, message, normalized_base_url_if_any).
+    """
+    _load_dotenv(REPO_ROOT / ".env")
+
+    raw_base_url = openai_base_url or os.getenv("OPENAI_BASE_URL", "")
+    if not raw_base_url:
+        return (
+            False,
+            "Missing OPENAI_BASE_URL. Set it in `.env` or pass `--OPENAI_BASE_URL/--base-url`.",
+            None,
+        )
+
+    normalized_base_url, warning = _normalize_base_url(raw_base_url)
+    if not normalized_base_url:
+        return False, warning or f"Invalid OPENAI_BASE_URL: {raw_base_url!r}", None
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    probe_url = _build_probe_url(normalized_base_url)
+    try:
+        import httpx
+    except Exception as exc:
+        return (
+            False,
+            f"Connectivity check requires httpx. Install dependencies via `uv sync` (import error: {exc}).",
+            normalized_base_url,
+        )
+
+    timeout = httpx.Timeout(timeout_seconds, connect=timeout_seconds)
+    try:
+        with httpx.Client(headers=headers, timeout=timeout, follow_redirects=True) as client:
+            response = client.get(probe_url)
+    except httpx.RequestError as exc:
+        return False, f"Failed to reach {probe_url!r}: {exc}", normalized_base_url
+
+    if 200 <= response.status_code < 300:
+        ok_message = f"Connectivity OK: {probe_url} -> {response.status_code}"
+        if warning:
+            ok_message = f"{ok_message} ({warning})"
+        return True, ok_message, normalized_base_url
+
+    body_snippet = (response.text or "").strip().replace("\n", " ")
+    if len(body_snippet) > 200:
+        body_snippet = body_snippet[:200] + "…"
+    if response.status_code in {401, 403}:
+        return (
+            False,
+            (
+                f"Endpoint reachable but unauthorized: {probe_url} -> {response.status_code}. "
+                "Set OPENAI_API_KEY (or adjust server auth)."
+                + (f" Response: {body_snippet}" if body_snippet else "")
+            ),
+            normalized_base_url,
+        )
+    return (
+        False,
+        (
+            f"Connectivity probe failed: {probe_url} -> {response.status_code}."
+            + (f" Response: {body_snippet}" if body_snippet else "")
+        ),
+        normalized_base_url,
+    )
 
 
 def parse_test_run_markdown(markdown_text: str) -> tuple[list[CaseDefinition], list[str]]:
@@ -628,11 +769,21 @@ def run_cli(argv: list[str] | None = None) -> int:
         print(dry_run_output(cases, all_warnings, args.chat_models, openai_base_url=args.openai_base_url))
         return 0
 
+    effective_base_url = args.openai_base_url
+    if not args.skip_connectivity_check:
+        ok, message, normalized = check_connectivity(openai_base_url=args.openai_base_url)
+        if not ok:
+            print(message, file=sys.stderr)
+            return 1
+        logger.info("%s", message)
+        if effective_base_url is None and normalized:
+            effective_base_url = normalized
+
     output_root, timestamp = build_output_root(args.output)
     output_root.mkdir(parents=True, exist_ok=True)
     logger.info("Selected %d case(s). Output root: %s", len(cases), output_root)
-    if args.openai_base_url:
-        logger.info("OPENAI_BASE_URL override: %s", args.openai_base_url)
+    if effective_base_url:
+        logger.info("OPENAI_BASE_URL: %s", effective_base_url)
     if args.chat_models:
         logger.info("Chat model override(s): %s", ", ".join(args.chat_models))
     if args.live_output:
@@ -645,7 +796,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             case,
             output_root,
             args.chat_models,
-            openai_base_url=args.openai_base_url,
+            openai_base_url=effective_base_url,
             live_output=args.live_output,
             index=index,
             total=len(cases),

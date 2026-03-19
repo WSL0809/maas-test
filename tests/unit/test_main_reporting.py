@@ -245,6 +245,7 @@ uv run pytest -q tests/test_chat.py -k b8
             str(test_run_file),
             "--output",
             str(output_root),
+            "--skip-connectivity-check",
         ]
     )
 
