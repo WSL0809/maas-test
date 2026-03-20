@@ -153,7 +153,7 @@ def test_rewrite_command_args_overrides_existing_openai_base_url_flag() -> None:
     assert "http://new.test/v1" in rewritten
 
 
-def test_aggregate_case_statuses_maps_models_and_merges_minimax(tmp_path: Path) -> None:
+def test_aggregate_case_statuses_maps_models(tmp_path: Path) -> None:
     results_csv = tmp_path / "results.csv"
     write_results_csv(
         results_csv,
@@ -174,8 +174,25 @@ def test_aggregate_case_statuses_maps_models_and_merges_minimax(tmp_path: Path) 
         "Qwen 3.5": "✅",
         "Kimi K2.5": "❌",
         "GLM-5": "⚠️",
-        "Minimax 2.1/2.5": "✅",
+        "Minimax 2.1": "✅",
+        "Minimax 2.5": "✅",
     }
+
+
+def test_aggregate_case_statuses_applies_minimax_aliases(tmp_path: Path) -> None:
+    results_csv = tmp_path / "results.csv"
+    write_results_csv(
+        results_csv,
+        [
+            {"model": "minimax-m2.5", "outcome": "passed"},
+        ],
+    )
+
+    statuses, error = main.aggregate_case_statuses(results_csv)
+
+    assert error == ""
+    assert statuses["Minimax 2.5"] == "✅"
+    assert statuses["Minimax 2.1"] == "⏳"
 
 
 def test_build_output_root_accepts_legacy_file_path(tmp_path: Path) -> None:
@@ -254,16 +271,40 @@ uv run pytest -q tests/test_chat.py -k b8
     assert exit_code == 0
     assert not (output_root / "matrix_report.md").exists()
     assert manifest["schema"] == "maas-test.main-run-manifest"
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
     assert isinstance(manifest.get("output_root"), str) and manifest["output_root"]
 
     cases = manifest["cases"]
     assert [case["case_id"] for case in cases] == ["H1", "B8"]
+    expected_status_keys = {
+        "Qwen 3.5",
+        "Kimi K2.5",
+        "GLM-5",
+        "Minimax 2.1",
+        "Minimax 2.5",
+    }
     for case in cases:
         assert isinstance(case.get("artifact_dir"), str) and case["artifact_dir"]
         assert str(case["results_csv"]).endswith("/results.csv")
         assert str(case["stdout_file"]).endswith("/stdout.txt")
         assert str(case["stderr_file"]).endswith("/stderr.txt")
+        assert set(case["statuses"]) == expected_status_keys
+
+    case_by_id = {case["case_id"]: case for case in cases}
+    assert case_by_id["H1"]["statuses"] == {
+        "Qwen 3.5": "✅",
+        "Kimi K2.5": "✅",
+        "GLM-5": "✅",
+        "Minimax 2.1": "✅",
+        "Minimax 2.5": "❌",
+    }
+    assert case_by_id["B8"]["statuses"] == {
+        "Qwen 3.5": "✅",
+        "Kimi K2.5": "✅",
+        "GLM-5": "⏳",
+        "Minimax 2.1": "⏳",
+        "Minimax 2.5": "⏳",
+    }
 
 
 def test_dry_run_output_uses_effective_chat_model_override() -> None:

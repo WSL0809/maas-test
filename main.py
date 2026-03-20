@@ -26,6 +26,12 @@ MODEL_TO_COLUMN = {
     "qwen35": "Qwen 3.5",
     "kimi-k25": "Kimi K2.5",
     "glm-5": "GLM-5",
+    "minimax-m21": "Minimax 2.1",
+    "minimax-m25": "Minimax 2.5",
+}
+MODEL_ALIASES = {
+    "minimax-m21": {"minimax-m21", "minimax-m2.1"},
+    "minimax-m25": {"minimax-m25", "minimax-m2.5"},
 }
 STATUS_PASS = "✅"
 STATUS_FAIL = "❌"
@@ -649,7 +655,8 @@ def aggregate_case_statuses(results_csv_path: Path) -> tuple[dict[str, str], str
         "Qwen 3.5": STATUS_NOT_RUN,
         "Kimi K2.5": STATUS_NOT_RUN,
         "GLM-5": STATUS_NOT_RUN,
-        "Minimax 2.1/2.5": STATUS_NOT_RUN,
+        "Minimax 2.1": STATUS_NOT_RUN,
+        "Minimax 2.5": STATUS_NOT_RUN,
     }
 
     if not results_csv_path.exists():
@@ -667,15 +674,12 @@ def aggregate_case_statuses(results_csv_path: Path) -> tuple[dict[str, str], str
     }
     for model_id, column_name in MODEL_TO_COLUMN.items():
         row_statuses[column_name] = model_statuses[model_id]
-    row_statuses["Minimax 2.1/2.5"] = merge_minimax_statuses(
-        model_statuses["minimax-m21"],
-        model_statuses["minimax-m25"],
-    )
     return row_statuses, ""
 
 
 def collapse_outcomes_for_model(rows: list[dict[str, str]], model_id: str) -> str:
-    outcomes = [row["outcome"] for row in rows if row.get("model") == model_id]
+    aliases = MODEL_ALIASES.get(model_id, {model_id})
+    outcomes = [row["outcome"] for row in rows if row.get("model") in aliases]
     if not outcomes:
         return STATUS_NOT_RUN
     unique_outcomes = set(outcomes)
@@ -683,16 +687,6 @@ def collapse_outcomes_for_model(rows: list[dict[str, str]], model_id: str) -> st
         return STATUS_PASS
     if unique_outcomes == {"failed"} or unique_outcomes == {"skipped"}:
         return STATUS_FAIL
-    return STATUS_PARTIAL
-
-
-def merge_minimax_statuses(minimax_m21_status: str, minimax_m25_status: str) -> str:
-    if minimax_m21_status == minimax_m25_status and minimax_m21_status in {
-        STATUS_PASS,
-        STATUS_FAIL,
-        STATUS_NOT_RUN,
-    }:
-        return minimax_m21_status
     return STATUS_PARTIAL
 
 
@@ -707,7 +701,7 @@ def write_manifest(
 ) -> None:
     manifest = {
         "schema": "maas-test.main-run-manifest",
-        "version": 2,
+        "version": 3,
         "timestamp": timestamp,
         "test_run_file": str(test_run_file),
         "output_root": str(output_root),
