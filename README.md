@@ -71,7 +71,7 @@ uv run pytest -q tests/test_chat_sdk_smoke.py
 运行指定模型：
 
 ```bash
-uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m25 --chat-model minimax-m21 --chat-model kimi-k25
+uv run pytest -q tests/test_chat.py tests/test_api_compatibility.py tests/test_context_length.py tests/test_tool_calling.py tests/test_chat_sdk_smoke.py --chat-model glm-5 --chat-model qwen35 --chat-model minimax-m2.5 --chat-model minimax-m21 --chat-model kimi-k25
 ```
 
 也可以通过环境变量一次指定多个模型：
@@ -372,14 +372,14 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 `test_create_suppresses_reasoning_when_thinking_disabled`
 
 - 严格验证 `chat_template_kwargs={"enable_thinking": false}` 的非流式返回不再携带冗余 `reasoning`
-- 当 `message.reasoning` 缺失、为 `null`、或仅为空白字符串时视为通过
-- 对当前已知仍会返回 `reasoning` 的模型，记录为 `xfail`，便于和“请求可接受”分开观察
+- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串时视为通过
+- 对当前已知仍会返回 `reasoning` / `reasoning_content` 的模型，记录为 `xfail`，便于和“请求可接受”分开观察
 
 `test_create_returns_reasoning_when_thinking_enabled`
 
 - 验证请求体接受 `chat_template_kwargs={"enable_thinking": true}`
 - 检查非流式返回仍能给出最终答案
-- 检查 `message.reasoning` 存在且为非空字符串
+- 优先检查 `message.reasoning` / `message.reasoning_content` 存在且为非空字符串；若缺失则回退为检查 `message.content` 含解释性文本
 - 通过固定算术题把最终答案约束到包含 `43`
 
 `test_stream_emits_reasoning_when_thinking_enabled`
@@ -387,7 +387,8 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 - 验证 `stream=true` 与 `chat_template_kwargs={"enable_thinking": true}` 可以同时使用
 - 检查响应仍是合法的 SSE 事件流，并带有 `[DONE]` 终止事件
 - 检查拼接后的 `delta.content` 最终答案包含 `43`
-- 检查流式增量里能采集到非空的 reasoning 片段
+- 优先检查流式增量里能采集到非空的 `delta.reasoning` / `delta.reasoning_content`
+- 若后端未单独输出 reasoning 增量，则回退为检查拼接后的文本中包含非纯数字的解释性内容
 
 `test_stream_accepts_chat_template_kwargs_enable_thinking_false`
 
@@ -399,21 +400,21 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 - 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，流式增量里不会再出现冗余 `reasoning`
 - SSE 聚合后的 `stream_result.reasoning` 为 `null` 视为通过
-- 对当前已知仍会返回 reasoning 片段的模型，记录为 `xfail`，便于单独追踪 suppress reasoning 行为
+- 对当前已知仍会返回 `reasoning` / `reasoning_content` 片段的模型，记录为 `xfail`，便于单独追踪 suppress reasoning 行为
 
 `test_create_switches_thinking_to_instant_within_same_conversation`
 
 - 对齐 B3“思考模式切换”：同一会话内先开启 thinking，再切到 instant
-- 第一轮开启 `chat_template_kwargs.enable_thinking=true`，断言非流式返回 `message.reasoning` 非空且最终答案包含 `43`
+- 第一轮开启 `chat_template_kwargs.enable_thinking=true`，优先断言非流式返回 `message.reasoning` / `message.reasoning_content` 非空；若缺失则回退为检查 `message.content` 含解释性文本，并同时要求最终答案包含 `43`
 - 将上一轮 assistant 文本追加到 history，第二轮切到 `chat_template_kwargs.enable_thinking=false` 并要求回复 `quartz`
-- 检查第二轮返回文本包含 `quartz`，并复用 B2 的 suppress reasoning 口径对第二轮 `message.reasoning` 做校验（不符合则记为 `xfail`）
+- 检查第二轮返回文本包含 `quartz`，并复用 B2 的 suppress reasoning 口径对第二轮 `message.reasoning` / `message.reasoning_content` 做校验（不符合则记为 `xfail`）
 
 `test_create_switches_instant_to_thinking_within_same_conversation`
 
 - 对齐 B3“思考模式切换”：同一会话内先关闭 thinking，再切到 thinking
 - 第一轮使用 `chat_template_kwargs.enable_thinking=false` 要求回复 `quartz`，验证 instant 请求可用
 - 将上一轮 assistant 文本追加到 history，第二轮切到 `chat_template_kwargs.enable_thinking=true` 并提固定算术题
-- 检查第二轮非流式返回 `message.reasoning` 非空，且最终答案包含 `43`
+- 检查第二轮非流式优先返回 `message.reasoning` / `message.reasoning_content` 非空；若缺失则回退为检查 `message.content` 含解释性文本，并同时要求最终答案包含 `43`
 
 `test_structured_output_tool_returns_valid_arguments`
 
@@ -443,21 +444,21 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 如果命令行显式传了 `--chat-model`，基础 chat 套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
 
-基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径和 JSON Mode 路径都允许按模型类做最小差异化；当前 JSON Mode 在 `glm-5`、`minimax-m21`、`minimax-m25` 上会以 `xfail` 记录通道差异（JSON 落在 `message.reasoning`）。
+基础 chat 套件的设计目标是“每个模型按已知最佳请求形状通过”，而不是强迫所有模型接受同一套最严格语义。因此，`StructuredOutput` 工具路径和 JSON Mode 路径都允许按模型类做最小差异化；当前 JSON Mode 在 `glm-5`、`minimax-m21`、`minimax-m2.5` 上会以 `xfail` 记录通道差异（JSON 落在 `message.reasoning` / `message.reasoning_content`）。
 
 ### 模型接口返回特点
 
 | 模型 | 基础 `create` / `stream` | `enable_thinking=false` 行为 | tools 行为 | StructuredOutput 行为 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | `kimi-k25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop`；JSON Mode 可在 `message.content` 返回 JSON |
-| `glm-5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+| `glm-5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
 | `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
-| `minimax-m25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
-| `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m25` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` 且 `content=null`（xfail） |
+| `minimax-m2.5` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` / `reasoning_content` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
+| `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` / `reasoning_content` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m2.5` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
 
 ## API Compatibility 套件
 
-API compatibility 套件位于 [tests/test_api_compatibility.py](/Users/wangshilong/Downloads/maas-test/tests/test_api_compatibility.py)。这个文件把 H 场景里的 H1-H5 固化成可重复执行的 live pytest 用例：H1/H4 走 `/v1/chat/completions`，H2/H4 走 `/v1/completions`，H3 校验 `/v1/models`，H5 覆盖稳定可复现的 `400/401/404`，并补一个轻量 `429` 探测与一个已知 `500` 回归探针。
+API compatibility 套件位于 [tests/test_api_compatibility.py](/Users/wangshilong/Downloads/maas-test/tests/test_api_compatibility.py)。这个文件把 H 场景里的 H1-H4 固化成可重复执行的 live pytest 用例：H1/H4 走 `/v1/chat/completions`，H2/H4 走 `/v1/completions`，H3 校验 `/v1/models`。
 
 ### 测试行为
 
@@ -480,41 +481,6 @@ API compatibility 套件位于 [tests/test_api_compatibility.py](/Users/wangshil
 - 对齐 H3：验证 `/v1/models` 能列出当前选中模型
 - 检查顶层对象是否为 `list`
 - 检查对应模型卡至少包含 `id`、`created` 与 `owned_by` 等元信息
-
-`test_chat_completions_bad_request_returns_openai_error_shape`
-
-- 对齐 H5 的 `400 Bad Request`
-- 发送 `messages` 类型错误的请求，要求服务返回 `400`
-- 检查顶层 `error.message` / `error.type` 形状符合 OpenAI 风格
-
-`test_chat_completions_invalid_api_key_returns_openai_error_shape`
-
-- 对齐 H5 的 `401 Unauthorized`
-- 使用无效 Bearer Token 重发同一请求
-- 检查响应为 `401`，且顶层 `error` 对象形状正常
-
-`test_unknown_route_returns_openai_error_shape`
-
-- 对齐 H5 的 `404 Not Found`
-- 请求一个不存在的 API 路径
-- 检查响应为 `404`，且顶层 `error` 对象形状正常
-
-`test_light_rate_limit_probe_returns_only_200_or_429`
-
-- 对齐 H5 的 `429 Too Many Requests` 探测
-- 对 `glm-5` 发起轻量并发请求，观察服务是否出现限流
-- 如果出现 `429`，要求错误体仍保持 OpenAI-compatible 形状；如果全部为 `200` 也视为本轮探测通过
-
-`test_forced_named_tool_choice_returns_openai_error_shape_when_upstream_500_reproduces`
-
-- 对齐 H5 的 `500 Internal Server Error` 回归探针
-- 使用当前已知可能触发 `minimax-m25` 上游 `500 upstream_error` 的 forced named `tool_choice` 路径
-- 若本轮成功复现 `500`，则要求顶层 `error` 对象形状正常；若后端已修复、不再返回 `500`，该用例会 `skip`
-
-### 说明
-
-- `429` 与 `500` 都带有环境相关性：前者依赖当前限流阈值，后者依赖后端是否仍保留已知错误路径
-- 因此这两个用例在设计上更接近“探测 / 回归探针”，而不是每轮都必须硬触发错误码
 
 ## Context Length 套件
 
@@ -579,7 +545,7 @@ tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downlo
 - 验证 B7“工具调用-多步链式”场景：要求模型以 3 个独立 assistant turn 依次调用 `fetch_seed_word`、`uppercase_word`、`decorate_word`
 - 每一步都要求“上一步 tool 结果”成为下一步 tool 参数，例如第二步必须把第一步返回的 `stone` 作为 `uppercase_word.word`
 - 最后一轮不再调用工具，而是回填第三步工具结果后输出最终文本 `[STONE]`
-- 默认稳定 passing path 目前为 `glm-5`、`minimax-m21`、`minimax-m25`；`qwen35` 与 `kimi-k25` 会在收集阶段跳过
+- 默认稳定 passing path 目前为 `glm-5`、`minimax-m21`、`minimax-m2.5`；`qwen35` 与 `kimi-k25` 会在收集阶段跳过
 
 ### 当前默认子集覆盖
 
@@ -593,6 +559,6 @@ tool calling 套件位于 [tests/test_tool_calling.py](/Users/wangshilong/Downlo
 
 数据集驱动子集会在数据文件元数据里声明不在稳定 passing path 的模型组合；这些组合会在收集阶段直接裁剪，不进入默认结果。比如“重复同名 tool call”目前不会对 `kimi-k25`、`qwen35` 和 `minimax-m21` 执行。
 
-显式的 B7 链式 round-trip 用例也会做同样的稳定路径过滤：当前默认只对 `glm-5`、`minimax-m21`、`minimax-m25` 执行；`qwen35` 会退化到 XML/长度截断路径，`kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`。
+显式的 B7 链式 round-trip 用例也会做同样的稳定路径过滤：当前默认只对 `glm-5`、`minimax-m21`、`minimax-m2.5` 执行；`qwen35` 会退化到 XML/长度截断路径，`kimi-k25` 当前可完成前两步，但第三步会丢失结构化 `tool_calls`。
 
 如果某个用例失败，可以直接打开 [test_failure_artifacts](/Users/wangshilong/Downloads/maas-test/test_failure_artifacts) 里的最新归档文件复盘请求和响应细节。

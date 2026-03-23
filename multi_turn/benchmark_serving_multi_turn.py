@@ -9,6 +9,8 @@
 #   "transformers>=4.46",
 #   "xlsxwriter>=3.2.1",
 #   "tqdm>=4.66",
+#   "httpx[socks]>=0.28.1",
+#   "socksio>=1.0.0"
 # ]
 # ///
 # SPDX-License-Identifier: Apache-2.0
@@ -47,6 +49,26 @@ def normalize_base_url(url: str) -> str:
     if url.endswith("/v1"):
         url = url[: -len("/v1")].rstrip("/")
     return url
+
+
+def parse_extra_body(raw_json: str | None) -> dict[str, Any]:
+    if raw_json is None:
+        return {}
+    parsed = json.loads(raw_json)
+    if not isinstance(parsed, dict):
+        raise ValueError("--extra-body-json must decode to a JSON object.")
+    return parsed
+
+
+def deep_merge_dict(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in extra.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = deep_merge_dict(existing, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 class Color(Enum):
@@ -575,6 +597,7 @@ class RequestArgs(NamedTuple):
     limit_min_tokens: int  # Use negative value for no limit
     limit_max_tokens: int  # Use negative value for no limit
     timeout_sec: int
+    extra_body: dict[str, Any]
 
 
 class BenchmarkArgs(NamedTuple):
@@ -727,6 +750,7 @@ async def send_request(
     min_tokens: int | None = None,
     max_tokens: int | None = None,
     timeout_sec: int = 120,
+    extra_body: dict[str, Any] | None = None,
 ) -> ServerResponse:
     payload = {
         "model": model,
@@ -744,6 +768,9 @@ async def send_request(
 
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+
+    if extra_body:
+        payload = deep_merge_dict(payload, extra_body)
 
     headers = {"Content-Type": "application/json"}
 
@@ -947,6 +974,7 @@ async def send_turn(
         min_tokens,
         max_tokens,
         req_args.timeout_sec,
+        req_args.extra_body,
     )
 
     if response.valid is False:
@@ -1397,6 +1425,8 @@ def get_client_config(
     chat_url = f"{base_url}/v1/chat/completions"
     model_name = args.served_model_name if args.served_model_name else args.model
 
+    extra_body = parse_extra_body(args.extra_body_json)
+
     req_args = RequestArgs(
         chat_url=chat_url,
         model=model_name,
@@ -1404,6 +1434,7 @@ def get_client_config(
         limit_min_tokens=args.limit_min_tokens,
         limit_max_tokens=args.limit_max_tokens,
         timeout_sec=args.request_timeout_sec,
+        extra_body=extra_body,
     )
 
     return client_args, req_args
@@ -2004,6 +2035,11 @@ async def main() -> None:
         action="store_true",
         help="Print the user prompts and the server's answers",
     )
+    parser.add_argument(
+        "--extra-body-json",
+        default=None,
+        help="JSON object merged into each chat completions request body.",
+    )
 
     parser.add_argument(
         "--warmup-percentages",
@@ -2015,6 +2051,7 @@ async def main() -> None:
     )
 
     args = parser.parse_args()
+    extra_body = parse_extra_body(args.extra_body_json)
 
     original_url = args.url
     args.url = normalize_base_url(args.url)
@@ -2029,6 +2066,8 @@ async def main() -> None:
     logger.info(f"url={args.url}")
     logger.info(f"model={args.model}")
     logger.info(f"num_clients={args.num_clients}")
+    if extra_body:
+        logger.info("extra_body=%s", extra_body)
 
     if args.verify_output:
         logger.info(f"{Color.PURPLE}Verify is enabled{Color.RESET}")

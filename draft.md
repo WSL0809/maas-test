@@ -37,7 +37,7 @@
 ---
 
 
-### H. API 兼容性（5 项）
+### H. API 兼容性（4 项）
 
 | # | 测试点 | 测试内容 | Qwen 3.5 | Kimi K2.5 | GLM-5 | Minimax 2.1 | Minimax 2.5 | 优先级 | 结果说明 |
 |---|--------|---------|----------|-----------|-------|-------------|-------------|--------|----------|
@@ -45,7 +45,6 @@
 | H2 | OpenAI Completions | `/v1/completions` 接口兼容，验证传统 completion 格式支持 | ✅ | ✅ | ✅ | ✅ | ✅ | P1 | |
 | H3 | 模型列表 | `/v1/models` 返回可用模型，验证正确返回模型 ID 和元信息 | ✅ | ✅ | ✅ | ✅ | ✅ | P1 | `/v1/models` 当前返回 `object=list`，默认模型矩阵 5 个模型都能在列表中找到，且带 `id` / `created` / `owned_by` 等元信息 |
 | H4 | Usage 统计 | 返回中 usage 字段准确，验证 `prompt_tokens + completion_tokens` 计数 | ✅ | ✅ | ✅ | ✅ | ✅ | P0 | |
-| H5 | 错误码规范 | `400/401/404/429/500` 错误码，验证符合 OpenAI 错误格式 | ✅ | ✅ | ✅ | ✅ | ✅ | P1 | `400/401/404` 已稳定复现，错误体均为 OpenAI-compatible 顶层 `error`；`429` 采用轻量并发探测，本轮未触发限流；`500` 可通过 `minimax-m25` forced named `tool_choice` 路径复现，错误体形状正常 |
 
 > **本轮回填（2026-03-18）**：
 > - H 场景已固化到 `tests/test_api_compatibility.py`

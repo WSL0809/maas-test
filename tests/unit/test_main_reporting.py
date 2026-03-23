@@ -163,7 +163,7 @@ def test_aggregate_case_statuses_maps_models(tmp_path: Path) -> None:
             {"model": "glm-5", "outcome": "passed"},
             {"model": "glm-5", "outcome": "skipped"},
             {"model": "minimax-m21", "outcome": "passed"},
-            {"model": "minimax-m25", "outcome": "passed"},
+            {"model": "minimax-m2.5", "outcome": "passed"},
         ],
     )
 
@@ -184,7 +184,7 @@ def test_aggregate_case_statuses_applies_minimax_aliases(tmp_path: Path) -> None
     write_results_csv(
         results_csv,
         [
-            {"model": "minimax-m2.5", "outcome": "passed"},
+            {"model": "minimax-m25", "outcome": "passed"},
         ],
     )
 

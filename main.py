@@ -21,17 +21,21 @@ REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_TEST_RUN_FILE = REPO_ROOT / "test_run.md"
 DEFAULT_REPORTS_DIR = REPO_ROOT / "reports" / "auto"
 logger = logging.getLogger("maas-test.main")
-KNOWN_MODEL_IDS = ("qwen35", "kimi-k25", "glm-5", "minimax-m21", "minimax-m25")
+KNOWN_MODEL_IDS = ("qwen35", "kimi-k25", "glm-5", "minimax-m21", "minimax-m2.5")
 MODEL_TO_COLUMN = {
     "qwen35": "Qwen 3.5",
     "kimi-k25": "Kimi K2.5",
     "glm-5": "GLM-5",
     "minimax-m21": "Minimax 2.1",
-    "minimax-m25": "Minimax 2.5",
+    "minimax-m2.5": "Minimax 2.5",
 }
 MODEL_ALIASES = {
     "minimax-m21": {"minimax-m21", "minimax-m2.1"},
-    "minimax-m25": {"minimax-m25", "minimax-m2.5"},
+    "minimax-m2.5": {"minimax-m2.5", "minimax-m25"},
+}
+CHAT_MODEL_CANONICALIZATION = {
+    # Historical repo name -> backend-reported model id.
+    "minimax-m25": "minimax-m2.5",
 }
 STATUS_PASS = "✅"
 STATUS_FAIL = "❌"
@@ -486,7 +490,9 @@ def rewrite_command_args(
         rewritten.append(arg)
 
     for model in chat_models or []:
-        rewritten.extend(["--chat-model", model])
+        normalized = CHAT_MODEL_CANONICALIZATION.get(model.strip(), model.strip())
+        if normalized:
+            rewritten.extend(["--chat-model", normalized])
     if openai_base_url:
         rewritten.extend(["--OPENAI_BASE_URL", openai_base_url])
     rewritten.extend(["--csv-report-dir", str(report_dir)])

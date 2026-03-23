@@ -2,7 +2,7 @@
   "models": [
     "glm-5",
     "qwen35",
-    "minimax-m25",
+    "minimax-m2.5",
     "minimax-m21",
     "kimi-k25"
   ]

@@ -26,6 +26,10 @@ MODEL_OVERRIDE_ENV_KEYS = {
     "OPENAI_CHAT_TEST_MODEL",
     "OPENAI_CHAT_TEST_MODELS",
 }
+MODEL_NAME_CANONICALIZATION = {
+    # Historical repo name -> backend-reported model id.
+    "minimax-m25": "minimax-m2.5",
+}
 
 
 class MatrixConfig(BaseModel):
@@ -241,11 +245,17 @@ def build_client() -> OpenAI:
 def split_model_names(raw_value: str | None) -> list[str]:
     if not raw_value:
         return []
-    return [model.strip() for model in raw_value.split(",") if model.strip()]
+    models: list[str] = []
+    for model in raw_value.split(","):
+        normalized = MODEL_NAME_CANONICALIZATION.get(model.strip(), model.strip())
+        if normalized:
+            models.append(normalized)
+    return models
 
 
 def unique_model_names(names: list[str]) -> list[str]:
-    return list(dict.fromkeys(names))
+    normalized = [MODEL_NAME_CANONICALIZATION.get(name.strip(), name.strip()) for name in names if name.strip()]
+    return list(dict.fromkeys(normalized))
 
 
 @lru_cache(maxsize=None)
@@ -349,6 +359,8 @@ def collect_stream_text(events: list[str]) -> StreamTextResult:
             parts.append(content)
 
         reasoning = delta.get("reasoning")
+        if reasoning is None:
+            reasoning = delta.get("reasoning_content")
         if isinstance(reasoning, str):
             reasoning_parts.append(reasoning)
 
