@@ -372,22 +372,22 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 `test_create_suppresses_reasoning_when_thinking_disabled`
 
 - 严格验证 `chat_template_kwargs={"enable_thinking": false}` 的非流式返回不会泄漏 hidden thinking
-- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串时视为通过
-- 如果显式 reasoning 字段非空，则视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
+- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串，且 `message.content` 中不存在 `<think>...</think>` 块时视为通过
+- 如果显式 reasoning 字段非空，或 reasoning 被包进 `message.content` 的 `<think>...</think>` 中，则视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_returns_reasoning_when_thinking_enabled`
 
 - 验证请求体接受 `chat_template_kwargs={"enable_thinking": true}`
 - 检查非流式返回仍能给出最终答案
-- 优先检查 `message.reasoning` / `message.reasoning_content` 存在且为非空字符串；若缺失则回退为检查 `message.content` 含解释性文本
+- 优先检查 `message.reasoning` / `message.reasoning_content` 存在且为非空字符串；若缺失则回退为检查 `message.content` 中是否存在 `<think>...</think>` 包裹的 reasoning 文本
 - 通过固定算术题把最终答案约束到包含 `43`
 
 `test_stream_emits_reasoning_when_thinking_enabled`
 
 - 验证 `stream=true` 与 `chat_template_kwargs={"enable_thinking": true}` 可以同时使用
 - 检查响应仍是合法的 SSE 事件流，并带有 `[DONE]` 终止事件
-- 顺着流分别聚合 `delta.reasoning`、`delta.reasoning_content`、`delta.content`
-- 严格要求三条通道最终都为非空，按通道占用关系判定开启 thinking 的正常流
+- 顺着流聚合 `delta.reasoning`、`delta.reasoning_content`、`delta.content`，并在聚合后的 `content` 中额外识别 `<think>...</think>` 包裹的 reasoning 文本
+- 显式 reasoning 通道与 `content` 中的 think 块按等价 reasoning 处理；最终仍要求 reasoning 与可见答案都非空
 
 `test_stream_accepts_chat_template_kwargs_enable_thinking_false`
 
@@ -398,7 +398,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 `test_stream_suppresses_reasoning_when_thinking_disabled`
 
 - 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，只允许 `delta.content` 通道有内容
-- `delta.reasoning` 与 `delta.reasoning_content` 任一非空，都视为不满足 suppress 口径；对当前已知不满足该口径的模型以 `xfail` 记录
+- `delta.reasoning`、`delta.reasoning_content` 任一非空，或聚合后的 `content` 中出现 `<think>...</think>`，都视为不满足 suppress 口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_switches_thinking_to_instant_within_same_conversation`
 
@@ -426,7 +426,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 `test_json_mode_returns_valid_json_object`
 
 - 验证 `response_format={"type":"json_object"}` 路径可用
-- 检查 assistant `content` 可被解析为 JSON 对象
+- 检查 assistant 的可见 `content`（剥离 `<think>...</think>` 后）可被解析为 JSON 对象
 - 检查 JSON 对象包含预期字段 `word` / `length`
 - 检查字段值与提示一致（`ping` / `4`）
 

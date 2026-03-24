@@ -17,6 +17,7 @@ from collections.abc import Mapping
 
 import httpx
 from openai import DefaultHttpxClient, OpenAI
+from tests.chat_test_support import merge_reasoning_text, parse_content_text
 
 DEFAULT_MAX_COMPLETION_TOKENS = 6000
 
@@ -179,8 +180,8 @@ def _build_long_filler_text(
 def _extract_text_response(message) -> str | None:
     content = getattr(message, "content", None)
     if isinstance(content, str):
-        stripped = content.strip()
-        return stripped or None
+        visible_content = parse_content_text(content).visible_text
+        return visible_content or None
 
     if isinstance(content, list):
         text_parts = []
@@ -193,7 +194,7 @@ def _extract_text_response(message) -> str | None:
                 text = getattr(item, "text", None)
                 if isinstance(text, str):
                     text_parts.append(text)
-        merged = "".join(text_parts).strip()
+        merged = parse_content_text("".join(text_parts)).visible_text
         return merged or None
 
     return None
@@ -210,9 +211,10 @@ def _normalize_optional_text(value) -> str | None:
 
 def _extract_reasoning_response(message) -> str | None:
     reasoning = _normalize_optional_text(getattr(message, "reasoning", None))
-    if reasoning:
-        return reasoning
-    return _normalize_optional_text(getattr(message, "reasoning_content", None))
+    reasoning_content = _normalize_optional_text(getattr(message, "reasoning_content", None))
+    content = getattr(message, "content", None)
+    content_reasoning = parse_content_text(content).reasoning_text if isinstance(content, str) else None
+    return merge_reasoning_text(reasoning, reasoning_content, content_reasoning)
 
 
 def _extract_stream_delta_text(delta) -> str | None:
@@ -221,9 +223,10 @@ def _extract_stream_delta_text(delta) -> str | None:
 
 def _extract_stream_delta_reasoning(delta) -> str | None:
     reasoning = _normalize_optional_text(getattr(delta, "reasoning", None))
-    if reasoning:
-        return reasoning
-    return _normalize_optional_text(getattr(delta, "reasoning_content", None))
+    reasoning_content = _normalize_optional_text(getattr(delta, "reasoning_content", None))
+    content = getattr(delta, "content", None)
+    content_reasoning = parse_content_text(content).reasoning_text if isinstance(content, str) else None
+    return merge_reasoning_text(reasoning, reasoning_content, content_reasoning)
 
 
 def _stream_long_context_response(

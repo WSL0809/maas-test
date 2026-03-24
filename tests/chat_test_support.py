@@ -69,6 +69,13 @@ class StreamToolCallResult:
     finish_reasons: list[str]
 
 
+@dataclass(frozen=True)
+class ParsedContentText:
+    visible_text: str
+    reasoning_text: str | None
+    has_think_blocks: bool
+
+
 class FailureArtifactRecorder:
     def __init__(self, test_name: str, nodeid: str, model: str) -> None:
         self.test_name = test_name
@@ -287,6 +294,51 @@ def slugify(value: str) -> str:
     return trimmed or "artifact"
 
 
+def merge_reasoning_text(*parts: str | None) -> str | None:
+    merged_parts: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        if part is None:
+            continue
+        normalized = part.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        merged_parts.append(normalized)
+    if not merged_parts:
+        return None
+    return "\n".join(merged_parts)
+
+
+def parse_content_text(content: str) -> ParsedContentText:
+    visible_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    cursor = 0
+
+    while cursor < len(content):
+        open_index = content.find("<think>", cursor)
+        if open_index == -1:
+            visible_parts.append(content[cursor:])
+            break
+
+        close_index = content.find("</think>", open_index + len("<think>"))
+        if close_index == -1:
+            visible_parts.append(content[cursor:])
+            break
+
+        visible_parts.append(content[cursor:open_index])
+        reasoning_parts.append(content[open_index + len("<think>"):close_index])
+        cursor = close_index + len("</think>")
+
+    visible_text = "".join(visible_parts).strip()
+    reasoning_text = merge_reasoning_text(*reasoning_parts)
+    return ParsedContentText(
+        visible_text=visible_text,
+        reasoning_text=reasoning_text,
+        has_think_blocks=bool(reasoning_parts),
+    )
+
+
 def redact_headers(headers: httpx.Headers) -> dict[str, str]:
     redacted: dict[str, str] = {}
     for key, value in headers.items():
@@ -378,10 +430,11 @@ def collect_stream_text(events: list[str]) -> StreamTextResult:
         if isinstance(reasoning_content, str):
             reasoning_content_parts.append(reasoning_content)
 
-    reasoning_text = "".join(reasoning_parts).strip() or None
-    reasoning_content_text = "".join(reasoning_content_parts).strip() or None
+    parsed_content = parse_content_text("".join(parts))
+    reasoning_text = merge_reasoning_text("".join(reasoning_parts), parsed_content.reasoning_text)
+    reasoning_content_text = merge_reasoning_text("".join(reasoning_content_parts), parsed_content.reasoning_text)
     return StreamTextResult(
-        text="".join(parts).strip(),
+        text=parsed_content.visible_text,
         reasoning_text=reasoning_text,
         reasoning_content_text=reasoning_content_text,
         chunk_count=chunk_count,

@@ -11,6 +11,8 @@ from tests.chat_test_support import (
     DEFAULT_MAX_COMPLETION_TOKENS,
     FailureArtifactRecorder,
     collect_stream_text,
+    merge_reasoning_text,
+    parse_content_text,
     request_json,
     request_response,
     request_sse,
@@ -63,7 +65,7 @@ def parse_tool_arguments(tool_call: Mapping[str, object]) -> dict[str, object]:
 
 def normalize_text_content(content: object) -> str:
     assert isinstance(content, str)
-    return content.strip().lower().strip("`'\"").rstrip(".。!！")
+    return parse_content_text(content).visible_text.lower().strip("`'\"").rstrip(".。!！")
 
 
 def normalize_reasoning_content(reasoning: object) -> str | None:
@@ -74,10 +76,21 @@ def normalize_reasoning_content(reasoning: object) -> str | None:
 
 
 def extract_reasoning(message: Mapping[str, object]) -> str | None:
-    reasoning = message.get("reasoning")
-    if reasoning is None:
-        reasoning = message.get("reasoning_content")
-    return normalize_reasoning_content(reasoning)
+    reasoning = normalize_reasoning_content(message.get("reasoning"))
+    reasoning_content = normalize_reasoning_content(message.get("reasoning_content"))
+    content = message.get("content")
+    parsed_content_reasoning = None
+    if isinstance(content, str):
+        parsed_content_reasoning = parse_content_text(content).reasoning_text
+    return merge_reasoning_text(reasoning, reasoning_content, parsed_content_reasoning)
+
+
+def extract_visible_content(message: Mapping[str, object]) -> str | None:
+    content = message.get("content")
+    if not isinstance(content, str):
+        return None
+    visible_content = parse_content_text(content).visible_text
+    return visible_content or None
 
 
 class BaseHTTPXChatTests:
@@ -170,8 +183,8 @@ class BaseHTTPXChatTests:
         pytest.xfail(message)
 
     def assert_json_mode_payload_in_content(self, message: Mapping[str, object]) -> str:
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
+        content = extract_visible_content(message)
+        if content:
             return content
 
         reasoning = extract_reasoning(message)
@@ -520,7 +533,7 @@ class BaseHTTPXChatTests:
         assert completion["model"]
         assert message["role"] == "assistant"
         assert isinstance(message["content"], str)
-        assert message["content"].strip()
+        assert extract_visible_content(message)
         assert completion["usage"]["total_tokens"] > 0
 
     def test_create_respects_system_prompt_priority(
@@ -536,7 +549,9 @@ class BaseHTTPXChatTests:
         )
 
         message = completion["choices"][0]["message"]
-        normalized_content = normalize_text_content(message["content"])
+        visible_content = extract_visible_content(message)
+        assert visible_content is not None
+        normalized_content = normalize_text_content(visible_content)
 
         assert completion["object"] == "chat.completion"
         assert completion["model"]
@@ -557,7 +572,9 @@ class BaseHTTPXChatTests:
         )
 
         message = completion["choices"][0]["message"]
-        normalized_content = normalize_text_content(message["content"])
+        visible_content = extract_visible_content(message)
+        assert visible_content is not None
+        normalized_content = normalize_text_content(visible_content)
 
         assert completion["object"] == "chat.completion"
         assert completion["model"]
@@ -604,7 +621,7 @@ class BaseHTTPXChatTests:
         assert completion["model"]
         assert message["role"] == "assistant"
         assert isinstance(message["content"], str)
-        assert message["content"].strip()
+        assert extract_visible_content(message)
         assert completion["usage"]["total_tokens"] > 0
 
     def test_create_respects_max_completion_tokens_limit(
@@ -640,7 +657,9 @@ class BaseHTTPXChatTests:
         )
 
         message = completion["choices"][0]["message"]
-        normalized_content = str(message["content"]).strip().replace(" ", "").replace("，", ",")
+        visible_content = extract_visible_content(message)
+        assert visible_content is not None
+        normalized_content = visible_content.strip().replace(" ", "").replace("，", ",")
 
         assert completion["object"] == "chat.completion"
         assert completion["model"]
@@ -661,7 +680,8 @@ class BaseHTTPXChatTests:
         )
 
         message = completion["choices"][0]["message"]
-        content = str(message["content"])
+        content = extract_visible_content(message)
+        assert content is not None
 
         assert completion["object"] == "chat.completion"
         assert completion["model"]
@@ -712,9 +732,11 @@ class BaseHTTPXChatTests:
         assert completion["model"]
         assert message["role"] == "assistant"
         assert isinstance(message["content"], str)
-        assert message["content"].strip()
+        assert extract_visible_content(message)
         assert completion["usage"]["total_tokens"] > 0
-        self.assert_single_image_understanding(message["content"])
+        visible_content = extract_visible_content(message)
+        assert visible_content is not None
+        self.assert_single_image_understanding(visible_content)
 
     def test_create_accepts_chat_template_kwargs_enable_thinking_false(
         self,
@@ -733,7 +755,9 @@ class BaseHTTPXChatTests:
         assert completion["object"] == "chat.completion"
         assert message["role"] == "assistant"
         assert isinstance(message["content"], str)
-        assert "quartz" in message["content"].lower()
+        visible_content = extract_visible_content(message)
+        assert visible_content is not None
+        assert "quartz" in visible_content.lower()
 
         reasoning = message.get("reasoning")
         if reasoning is not None:
@@ -773,12 +797,13 @@ class BaseHTTPXChatTests:
         )
 
         message = completion["choices"][0]["message"]
-        content = str(message["content"])
+        content = extract_visible_content(message)
+        assert content is not None
         reasoning = extract_reasoning(message)
 
         assert completion["object"] == "chat.completion"
         assert message["role"] == "assistant"
-        assert content.strip()
+        assert content
         assert "43" in content
         if isinstance(reasoning, str) and reasoning:
             return
@@ -858,7 +883,8 @@ class BaseHTTPXChatTests:
             recorder=failure_artifact_recorder,
         )
         thinking_message = thinking_completion["choices"][0]["message"]
-        thinking_content = str(thinking_message["content"])
+        thinking_content = extract_visible_content(thinking_message)
+        assert thinking_content is not None
         thinking_reasoning = extract_reasoning(thinking_message)
 
         assert thinking_completion["object"] == "chat.completion"
@@ -901,7 +927,9 @@ class BaseHTTPXChatTests:
         assert instant_completion["object"] == "chat.completion"
         assert instant_message["role"] == "assistant"
         assert isinstance(instant_message["content"], str)
-        assert "quartz" in instant_message["content"].lower()
+        instant_visible_content = extract_visible_content(instant_message)
+        assert instant_visible_content is not None
+        assert "quartz" in instant_visible_content.lower()
 
         self.assert_disable_thinking_reasoning_suppressed(
             extract_reasoning(instant_message),
@@ -925,10 +953,12 @@ class BaseHTTPXChatTests:
         assert instant_completion["object"] == "chat.completion"
         assert instant_message["role"] == "assistant"
         assert isinstance(instant_message["content"], str)
-        assert "quartz" in instant_message["content"].lower()
+        instant_visible_content = extract_visible_content(instant_message)
+        assert instant_visible_content is not None
+        assert "quartz" in instant_visible_content.lower()
 
         messages = list(instant_payload["messages"])
-        messages.append({"role": "assistant", "content": instant_message["content"]})
+        messages.append({"role": "assistant", "content": instant_visible_content})
         messages.append(
             {
                 "role": "user",
@@ -955,7 +985,8 @@ class BaseHTTPXChatTests:
         )
 
         thinking_message = thinking_completion["choices"][0]["message"]
-        thinking_content = str(thinking_message["content"])
+        thinking_content = extract_visible_content(thinking_message)
+        assert thinking_content is not None
         thinking_reasoning = extract_reasoning(thinking_message)
 
         assert thinking_completion["object"] == "chat.completion"
