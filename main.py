@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from model_aliases import CANONICAL_MODEL_ALIASES, canonicalize_model_name, canonicalize_model_names
+from model_aliases import CANONICAL_MODEL_ALIASES, canonicalize_model_name, unique_requested_model_names
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -487,7 +487,7 @@ def rewrite_command_args(
             continue
         rewritten.append(arg)
 
-    for model in canonicalize_model_names(chat_models or []):
+    for model in unique_requested_model_names(chat_models or []):
         rewritten.extend(["--chat-model", model])
     if openai_base_url:
         rewritten.extend(["--OPENAI_BASE_URL", openai_base_url])

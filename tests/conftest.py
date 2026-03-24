@@ -18,10 +18,10 @@ from tests.chat_test_support import (
     load_dotenv,
     load_matrix_config,
     resolve_base_url,
-    split_model_names,
-    unique_model_names,
+    split_requested_model_names,
 )
 from tests.csv_report import CsvReportCollector, build_run_metadata, emit_terminal_summary
+from model_aliases import canonicalize_model_name, unique_requested_model_names
 
 
 load_dotenv()
@@ -116,11 +116,11 @@ def _resolve_matrix_config_path(pytest_config: pytest.Config) -> Path:
 def _resolve_target_models(pytest_config: pytest.Config) -> tuple[list[str], MatrixConfig]:
     config_path = _resolve_matrix_config_path(pytest_config)
     matrix_config = load_matrix_config(config_path)
-    cli_models = unique_model_names(pytest_config.getoption("chat_models") or [])
-    env_models = unique_model_names(split_model_names(os.getenv("OPENAI_CHAT_TEST_MODELS")))
+    cli_models = unique_requested_model_names(pytest_config.getoption("chat_models") or [])
+    env_models = split_requested_model_names(os.getenv("OPENAI_CHAT_TEST_MODELS"))
     single_model = os.getenv("OPENAI_CHAT_TEST_MODEL")
     if single_model:
-        models = cli_models or env_models or [single_model]
+        models = cli_models or env_models or unique_requested_model_names([single_model])
     else:
         models = cli_models or env_models or list(matrix_config.models) or [DEFAULT_MODEL]
     return models, matrix_config
@@ -169,16 +169,23 @@ def sdk_client() -> Iterator[OpenAI]:
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     selected_models, _ = _resolve_target_models(config)
-    selected_model_names = set(selected_models)
+    selected_model_names = {canonicalize_model_name(model) for model in selected_models}
+    runtime_model_names = {
+        canonicalize_model_name(model): model
+        for model in selected_models
+    }
 
     remaining_items: list[pytest.Item] = []
     deselected_items: list[pytest.Item] = []
 
     for item in items:
         model_name = getattr(getattr(item, "cls", None), "MODEL_NAME", None)
-        if model_name and model_name not in selected_model_names:
+        canonical_model_name = canonicalize_model_name(model_name) if model_name else None
+        if canonical_model_name and canonical_model_name not in selected_model_names:
             deselected_items.append(item)
             continue
+        if canonical_model_name and getattr(item, "cls", None) is not None:
+            item.cls.MODEL_NAME = runtime_model_names.get(canonical_model_name, model_name)
 
         if _should_deselect_for_model_capability(item):
             deselected_items.append(item)
@@ -200,7 +207,7 @@ def _should_deselect_for_model_capability(item: pytest.Item) -> bool:
         model = callspec.params.get("model")
         should_skip_model = getattr(case, "should_skip_model", None)
         if callable(should_skip_model) and isinstance(model, str):
-            return bool(should_skip_model(model))
+            return bool(should_skip_model(canonicalize_model_name(model)))
 
     original_name = getattr(item, "originalname", item.name)
     required_capability = MODEL_CAPABILITY_GATES.get(original_name)

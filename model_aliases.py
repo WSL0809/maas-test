@@ -37,3 +37,18 @@ def canonicalize_model_name(name: str) -> str:
 def canonicalize_model_names(names: Iterable[str]) -> list[str]:
     normalized = [canonicalize_model_name(name) for name in names]
     return [name for name in normalized if name]
+
+
+def unique_requested_model_names(names: Iterable[str]) -> list[str]:
+    unique_names: list[str] = []
+    seen_canonical_names: set[str] = set()
+    for name in names:
+        requested_name = name.strip()
+        if not requested_name:
+            continue
+        canonical_name = canonicalize_model_name(requested_name)
+        if canonical_name in seen_canonical_names:
+            continue
+        seen_canonical_names.add(canonical_name)
+        unique_names.append(requested_name)
+    return unique_names

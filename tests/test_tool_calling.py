@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from model_aliases import canonicalize_model_name
 from tests.chat_test_support import (
     CHAT_COMPLETIONS_PATH,
     FailureArtifactRecorder,
@@ -235,7 +236,7 @@ def test_dataset_driven_tool_calling_case(
     tmp_path: Path,
     failure_artifact_recorder: FailureArtifactRecorder,
 ) -> None:
-    if case.should_skip_model(model):
+    if case.should_skip_model(canonicalize_model_name(model)):
         pytest.skip(f"{case.case_id} is not in the stable passing path for {model}")
 
     result = asyncio.run(
@@ -273,7 +274,7 @@ def test_multi_step_tool_chain_round_trip(
     http_client,
     failure_artifact_recorder: FailureArtifactRecorder,
 ) -> None:
-    if model in B7_STABLE_SKIP_MODELS:
+    if canonicalize_model_name(model) in B7_STABLE_SKIP_MODELS:
         pytest.skip(f"B7 multi-step tool chain is not in the stable passing path for {model}")
 
     executed_tool_names, final_text = _run_b7_chain(

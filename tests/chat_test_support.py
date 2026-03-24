@@ -13,7 +13,7 @@ import httpx
 from openai import APIError, OpenAI
 from pydantic import BaseModel, Field
 
-from model_aliases import canonicalize_model_names
+from model_aliases import canonicalize_model_names, unique_requested_model_names
 
 
 DEFAULT_MODEL = "gpt-4o-mini"
@@ -261,6 +261,12 @@ def split_model_names(raw_value: str | None) -> list[str]:
 
 def unique_model_names(names: list[str]) -> list[str]:
     return list(dict.fromkeys(canonicalize_model_names(names)))
+
+
+def split_requested_model_names(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    return unique_requested_model_names(raw_value.split(","))
 
 
 @lru_cache(maxsize=None)

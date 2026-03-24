@@ -263,4 +263,21 @@ def test_chat_model_alias_selects_matching_model_class(pytester: pytest.Pytester
     result.assert_outcomes(passed=1, deselected=1)
 
     rows = read_csv_rows(pytester.path / "reports" / "results.csv")
-    assert [row["model"] for row in rows] == ["minimax-m2.5"]
+    assert [row["model"] for row in rows] == ["MiniMax2.5"]
+
+
+def test_chat_model_alias_preserves_requested_runtime_model(pytester: pytest.Pytester) -> None:
+    install_repo_plugin(pytester)
+    pytester.makepyfile(
+        test_models="""
+        def test_chat_completions_returns_openai_shape_and_usage(model):
+            assert model == "MiniMax2.5"
+        """
+    )
+
+    result = pytester.runpytest("-q", "--csv-report-dir=reports", "--chat-model=MiniMax2.5")
+
+    result.assert_outcomes(passed=1)
+
+    rows = read_csv_rows(pytester.path / "reports" / "results.csv")
+    assert [row["model"] for row in rows] == ["MiniMax2.5"]
