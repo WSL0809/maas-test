@@ -4,7 +4,7 @@
 
 仓库现在分成五类默认测试，外加一条显式开启的 K2 verifier 通道：
 
-- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress hidden thinking 校验（既检查 reasoning 字段，也检查 content 中没有混入解释性文本）、JSON Mode、StructuredOutput
+- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 stream 通道占用校验（保留 `reasoning`、`reasoning_content`、`content` 三条通道并分别断言）、JSON Mode、StructuredOutput
 - API compatibility 套件：覆盖 `/v1/chat/completions`、`/v1/completions`、`/v1/models`、usage 统计，以及常见错误码的 OpenAI-compatible 形状
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
 - tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，以及显式的多步链式 tool loop 回填路径；当前包含单工具、同消息重复 tool call、同消息并行多工具、多步链式 tool loop 等场景
@@ -289,7 +289,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、单图视觉理解（C1）主路径、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress hidden thinking 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、单图视觉理解（C1）主路径、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 stream 通道占用校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -372,8 +372,8 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 `test_create_suppresses_reasoning_when_thinking_disabled`
 
 - 严格验证 `chat_template_kwargs={"enable_thinking": false}` 的非流式返回不会泄漏 hidden thinking
-- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串，且规范化后的 `message.content` 精确等于 `quartz` 时视为通过
-- 如果 reasoning 字段非空，或 explanation 被混进 `message.content`，则视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
+- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串时视为通过
+- 如果显式 reasoning 字段非空，则视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_returns_reasoning_when_thinking_enabled`
 
@@ -386,21 +386,19 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 - 验证 `stream=true` 与 `chat_template_kwargs={"enable_thinking": true}` 可以同时使用
 - 检查响应仍是合法的 SSE 事件流，并带有 `[DONE]` 终止事件
-- 检查拼接后的 `delta.content` 最终答案包含 `43`
-- 优先检查流式增量里能采集到非空的 `delta.reasoning` / `delta.reasoning_content`
-- 若后端未单独输出 reasoning 增量，则回退为检查拼接后的文本中包含非纯数字的解释性内容
+- 顺着流分别聚合 `delta.reasoning`、`delta.reasoning_content`、`delta.content`
+- 严格要求三条通道最终都为非空，按通道占用关系判定开启 thinking 的正常流
 
 `test_stream_accepts_chat_template_kwargs_enable_thinking_false`
 
 - 验证 `stream=true` 与 `chat_template_kwargs={"enable_thinking": false}` 可以同时使用
 - 检查响应仍是合法的 SSE 事件流，并带有 `[DONE]` 终止事件
-- 检查拼接后的 `delta.content` 仍能组成包含 `quartz` 的最终文本
+- 检查 `delta.content` 通道最终非空
 
 `test_stream_suppresses_reasoning_when_thinking_disabled`
 
-- 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，流式返回不会泄漏 hidden thinking
-- SSE 聚合后的 `stream_result.reasoning` 必须为 `null`，且最终拼接文本规范化后必须精确等于 `quartz`
-- 如果流式 reasoning 字段为空，但 explanation 混进了 `delta.content`，同样视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
+- 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，只允许 `delta.content` 通道有内容
+- `delta.reasoning` 与 `delta.reasoning_content` 任一非空，都视为不满足 suppress 口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_switches_thinking_to_instant_within_same_conversation`
 

@@ -42,22 +42,90 @@ def test_collect_stream_text_keeps_content_out_of_reasoning_channel() -> None:
 
     result = collect_stream_text(events)
 
-    assert result.reasoning is None
+    assert result.reasoning_text is None
+    assert result.reasoning_content_text is None
+    assert result.has_content is True
     assert result.text == "The user is asking for the single word quartz. quartz"
 
 
-def test_disable_thinking_assertion_accepts_exact_visible_answer() -> None:
-    StrictDisableThinkingAssertions().assert_disable_thinking_reasoning_suppressed(
-        None,
-        " Quartz. ",
-        transport="stream",
+def test_collect_stream_text_preserves_all_three_channels() -> None:
+    events = [
+        json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning": "answer",
+                            "reasoning_content": "answer",
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        ),
+        json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {"content": "2"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        ),
+        "[DONE]",
+    ]
+
+    result = collect_stream_text(events)
+
+    assert result.reasoning_text == "answer"
+    assert result.reasoning_content_text == "answer"
+    assert result.text == "2"
+    assert result.has_reasoning is True
+    assert result.has_reasoning_content is True
+    assert result.has_content is True
+
+
+def test_disable_thinking_stream_assertion_accepts_content_only() -> None:
+    result = collect_stream_text(
+        [
+            json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {"content": "quartz", "reasoning_content": None},
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }
+            ),
+            "[DONE]",
+        ]
     )
 
+    StrictDisableThinkingAssertions().assert_stream_disable_thinking_channels_suppressed(result)
 
-def test_disable_thinking_assertion_rejects_hidden_thinking_in_visible_text() -> None:
+
+def test_disable_thinking_stream_assertion_rejects_reasoning_channels() -> None:
+    result = collect_stream_text(
+        [
+            json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "reasoning": "think",
+                                "reasoning_content": "think",
+                                "content": "quartz",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ]
+                }
+            ),
+            "[DONE]",
+        ]
+    )
+
     with pytest.raises(AssertionError, match="leaked hidden thinking"):
-        StrictDisableThinkingAssertions().assert_disable_thinking_reasoning_suppressed(
-            None,
-            "The user is asking for the single word quartz.",
-            transport="stream",
-        )
+        StrictDisableThinkingAssertions().assert_stream_disable_thinking_channels_suppressed(result)

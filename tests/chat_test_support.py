@@ -44,10 +44,23 @@ class ParsedAnswer(BaseModel):
 @dataclass
 class StreamTextResult:
     text: str
-    reasoning: str | None
+    reasoning_text: str | None
+    reasoning_content_text: str | None
     chunk_count: int
     saw_done: bool
     finish_reasons: list[str]
+
+    @property
+    def has_content(self) -> bool:
+        return bool(self.text)
+
+    @property
+    def has_reasoning(self) -> bool:
+        return bool(self.reasoning_text)
+
+    @property
+    def has_reasoning_content(self) -> bool:
+        return bool(self.reasoning_content_text)
 
 
 @dataclass
@@ -327,6 +340,7 @@ def extract_sse_data(lines: list[str]) -> list[str]:
 def collect_stream_text(events: list[str]) -> StreamTextResult:
     parts: list[str] = []
     reasoning_parts: list[str] = []
+    reasoning_content_parts: list[str] = []
     finish_reasons: list[str] = []
     chunk_count = 0
     saw_done = False
@@ -359,15 +373,19 @@ def collect_stream_text(events: list[str]) -> StreamTextResult:
             parts.append(content)
 
         reasoning = delta.get("reasoning")
-        if reasoning is None:
-            reasoning = delta.get("reasoning_content")
         if isinstance(reasoning, str):
             reasoning_parts.append(reasoning)
 
+        reasoning_content = delta.get("reasoning_content")
+        if isinstance(reasoning_content, str):
+            reasoning_content_parts.append(reasoning_content)
+
     reasoning_text = "".join(reasoning_parts).strip() or None
+    reasoning_content_text = "".join(reasoning_content_parts).strip() or None
     return StreamTextResult(
         text="".join(parts).strip(),
-        reasoning=reasoning_text,
+        reasoning_text=reasoning_text,
+        reasoning_content_text=reasoning_content_text,
         chunk_count=chunk_count,
         saw_done=saw_done,
         finish_reasons=finish_reasons,

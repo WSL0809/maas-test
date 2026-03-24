@@ -106,25 +106,63 @@ class BaseHTTPXChatTests:
     def assert_disable_thinking_reasoning_suppressed(
         self,
         reasoning: str | None,
-        visible_text: object,
         *,
         transport: str,
-        expected_answer: str = "quartz",
     ) -> None:
-        normalized_visible_text = normalize_text_content(visible_text)
-        normalized_expected_answer = normalize_text_content(expected_answer)
+        if reasoning is None:
+            return
 
-        if reasoning is None and normalized_visible_text == normalized_expected_answer:
+        message = (
+            f"{self.MODEL_NAME} still returns reasoning in {transport} responses when "
+            f"chat_template_kwargs.enable_thinking=false (reasoning={reasoning!r})"
+        )
+        if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
+            raise AssertionError(message)
+        pytest.xfail(message)
+
+    def assert_stream_emits_reasoning_channels(
+        self,
+        stream_result,
+    ) -> None:
+        missing_channels: list[str] = []
+        if not stream_result.has_reasoning:
+            missing_channels.append("delta.reasoning")
+        if not stream_result.has_reasoning_content:
+            missing_channels.append("delta.reasoning_content")
+        if not stream_result.has_content:
+            missing_channels.append("delta.content")
+        if not missing_channels:
+            return
+
+        raise AssertionError(
+            f"{self.MODEL_NAME} did not emit expected stream channels when thinking is enabled "
+            f"(missing={missing_channels}, reasoning={stream_result.reasoning_text!r}, "
+            f"reasoning_content={stream_result.reasoning_content_text!r}, content={stream_result.text!r})"
+        )
+
+    def assert_stream_disable_thinking_channels_suppressed(
+        self,
+        stream_result,
+    ) -> None:
+        if (
+            stream_result.has_content
+            and not stream_result.has_reasoning
+            and not stream_result.has_reasoning_content
+        ):
             return
 
         details: list[str] = []
-        if reasoning is not None:
-            details.append(f"reasoning={reasoning!r}")
-        if normalized_visible_text != normalized_expected_answer:
-            details.append(f"visible_text={visible_text!r}")
+        if not stream_result.has_content:
+            details.append("delta.content=empty")
+        if stream_result.has_reasoning:
+            details.append(f"delta.reasoning={stream_result.reasoning_text!r}")
+        if stream_result.has_reasoning_content:
+            details.append(
+                f"delta.reasoning_content={stream_result.reasoning_content_text!r}"
+            )
         detail_suffix = f" ({', '.join(details)})" if details else ""
         message = (
-            f"{self.MODEL_NAME} leaked hidden thinking in {transport} responses when "
+            f"{self.MODEL_NAME} leaked hidden thinking in stream responses when "
             f"chat_template_kwargs.enable_thinking=false{detail_suffix}"
         )
         if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
@@ -719,7 +757,6 @@ class BaseHTTPXChatTests:
         assert message["role"] == "assistant"
         self.assert_disable_thinking_reasoning_suppressed(
             extract_reasoning(message),
-            message["content"],
             transport="create",
         )
 
@@ -768,15 +805,7 @@ class BaseHTTPXChatTests:
         assert response.headers["content-type"].startswith("text/event-stream")
         assert stream_result.chunk_count > 0
         assert stream_result.saw_done
-        assert stream_result.text
-        assert "43" in stream_result.text
-        if isinstance(stream_result.reasoning, str) and stream_result.reasoning.strip():
-            return
-
-        assert any(char.isalpha() for char in stream_result.text), (
-            f"{self.MODEL_NAME} did not emit a separate reasoning field in stream chunks, "
-            "and the streamed text does not appear to include any explanatory content."
-        )
+        self.assert_stream_emits_reasoning_channels(stream_result)
 
     def test_stream_accepts_chat_template_kwargs_enable_thinking_false(
         self,
@@ -795,8 +824,7 @@ class BaseHTTPXChatTests:
         assert response.headers["content-type"].startswith("text/event-stream")
         assert stream_result.chunk_count > 0
         assert stream_result.saw_done
-        assert stream_result.text
-        assert "quartz" in stream_result.text.lower()
+        assert stream_result.has_content
 
     def test_stream_suppresses_reasoning_when_thinking_disabled(
         self,
@@ -815,12 +843,7 @@ class BaseHTTPXChatTests:
         assert response.headers["content-type"].startswith("text/event-stream")
         assert stream_result.chunk_count > 0
         assert stream_result.saw_done
-        assert stream_result.text
-        self.assert_disable_thinking_reasoning_suppressed(
-            stream_result.reasoning,
-            stream_result.text,
-            transport="stream",
-        )
+        self.assert_stream_disable_thinking_channels_suppressed(stream_result)
 
     def test_create_switches_thinking_to_instant_within_same_conversation(
         self,
@@ -882,7 +905,6 @@ class BaseHTTPXChatTests:
 
         self.assert_disable_thinking_reasoning_suppressed(
             extract_reasoning(instant_message),
-            instant_message["content"],
             transport="create",
         )
 

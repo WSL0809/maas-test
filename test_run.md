@@ -332,8 +332,8 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_suppre
 ```
 
 - 当前已知现象：
-  - B2-B 现在按“strict suppress hidden thinking”执行：显式 `reasoning` / `reasoning_content` 为空仍不够，最终可见答案规范化后也必须只等于 `quartz`。
-  - `minimax-m2.5` 在当前后端的流式链路上可能因为上游 vLLM 已知问题 `vllm-project/vllm#36632` 缺少单独 reasoning 字段，但如果 explanation 混进 `delta.content`，该用例仍会判为泄漏并以 `xfail` 记录。
+  - B2-B 现在按三通道 stream 聚合执行：`delta.content` 必须非空，`delta.reasoning` 与 `delta.reasoning_content` 都必须为空。
+  - 不再依赖最终答案文本是否等于 `quartz`；流式 suppress 只按通道占用关系判定。
 
 ## B3 思考模式切换
 
