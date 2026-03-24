@@ -238,3 +238,29 @@ def test_csv_excludes_deselected_items(pytester: pytest.Pytester) -> None:
     assert len(summary_rows) == 1
     assert summary_rows[0]["alpha测试结果"] == "passed"
     assert "beta测试结果" not in summary_rows[0]
+
+
+def test_chat_model_alias_selects_matching_model_class(pytester: pytest.Pytester) -> None:
+    install_repo_plugin(pytester)
+    pytester.makepyfile(
+        test_models="""
+        class TestMiniMax:
+            MODEL_NAME = "minimax-m2.5"
+
+            def test_create_returns_non_empty_assistant_message(self):
+                assert True
+
+        class TestOther:
+            MODEL_NAME = "glm-5"
+
+            def test_create_returns_non_empty_assistant_message(self):
+                assert True
+        """
+    )
+
+    result = pytester.runpytest("-q", "--csv-report-dir=reports", "--chat-model=MiniMax2.5")
+
+    result.assert_outcomes(passed=1, deselected=1)
+
+    rows = read_csv_rows(pytester.path / "reports" / "results.csv")
+    assert [row["model"] for row in rows] == ["minimax-m2.5"]

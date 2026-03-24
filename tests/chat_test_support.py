@@ -13,6 +13,8 @@ import httpx
 from openai import APIError, OpenAI
 from pydantic import BaseModel, Field
 
+from model_aliases import canonicalize_model_names
+
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_COMPLETION_TOKENS = 16000
@@ -25,10 +27,6 @@ FAILURE_ARTIFACTS_DIR = ROOT_DIR / "test_failure_artifacts"
 MODEL_OVERRIDE_ENV_KEYS = {
     "OPENAI_CHAT_TEST_MODEL",
     "OPENAI_CHAT_TEST_MODELS",
-}
-MODEL_NAME_CANONICALIZATION = {
-    # Historical repo name -> backend-reported model id.
-    "minimax-m25": "minimax-m2.5",
 }
 
 
@@ -258,17 +256,11 @@ def build_client() -> OpenAI:
 def split_model_names(raw_value: str | None) -> list[str]:
     if not raw_value:
         return []
-    models: list[str] = []
-    for model in raw_value.split(","):
-        normalized = MODEL_NAME_CANONICALIZATION.get(model.strip(), model.strip())
-        if normalized:
-            models.append(normalized)
-    return models
+    return canonicalize_model_names(raw_value.split(","))
 
 
 def unique_model_names(names: list[str]) -> list[str]:
-    normalized = [MODEL_NAME_CANONICALIZATION.get(name.strip(), name.strip()) for name in names if name.strip()]
-    return list(dict.fromkeys(normalized))
+    return list(dict.fromkeys(canonicalize_model_names(names)))
 
 
 @lru_cache(maxsize=None)

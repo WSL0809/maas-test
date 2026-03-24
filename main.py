@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from model_aliases import CANONICAL_MODEL_ALIASES, canonicalize_model_name, canonicalize_model_names
+
 
 REPO_ROOT = Path(__file__).resolve().parent
 DEFAULT_TEST_RUN_FILE = REPO_ROOT / "test_run.md"
@@ -31,11 +33,7 @@ MODEL_TO_COLUMN = {
 }
 MODEL_ALIASES = {
     "minimax-m21": {"minimax-m21", "minimax-m2.1"},
-    "minimax-m2.5": {"minimax-m2.5", "minimax-m25"},
-}
-CHAT_MODEL_CANONICALIZATION = {
-    # Historical repo name -> backend-reported model id.
-    "minimax-m25": "minimax-m2.5",
+    "minimax-m2.5": set(CANONICAL_MODEL_ALIASES["minimax-m2.5"]) | {"minimax-m2.5"},
 }
 STATUS_PASS = "✅"
 STATUS_FAIL = "❌"
@@ -489,10 +487,8 @@ def rewrite_command_args(
             continue
         rewritten.append(arg)
 
-    for model in chat_models or []:
-        normalized = CHAT_MODEL_CANONICALIZATION.get(model.strip(), model.strip())
-        if normalized:
-            rewritten.extend(["--chat-model", normalized])
+    for model in canonicalize_model_names(chat_models or []):
+        rewritten.extend(["--chat-model", model])
     if openai_base_url:
         rewritten.extend(["--OPENAI_BASE_URL", openai_base_url])
     rewritten.extend(["--csv-report-dir", str(report_dir)])
@@ -684,8 +680,12 @@ def aggregate_case_statuses(results_csv_path: Path) -> tuple[dict[str, str], str
 
 
 def collapse_outcomes_for_model(rows: list[dict[str, str]], model_id: str) -> str:
-    aliases = MODEL_ALIASES.get(model_id, {model_id})
-    outcomes = [row["outcome"] for row in rows if row.get("model") in aliases]
+    aliases = {_normalize_alias_for_comparison(alias) for alias in MODEL_ALIASES.get(model_id, {model_id})}
+    outcomes = [
+        row["outcome"]
+        for row in rows
+        if _normalize_alias_for_comparison(row.get("model", "")) in aliases
+    ]
     if not outcomes:
         return STATUS_NOT_RUN
     unique_outcomes = set(outcomes)
@@ -694,6 +694,10 @@ def collapse_outcomes_for_model(rows: list[dict[str, str]], model_id: str) -> st
     if unique_outcomes == {"failed"} or unique_outcomes == {"skipped"}:
         return STATUS_FAIL
     return STATUS_PARTIAL
+
+
+def _normalize_alias_for_comparison(model_name: str) -> str:
+    return canonicalize_model_name(model_name).lower()
 
 
 def write_manifest(

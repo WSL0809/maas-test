@@ -185,6 +185,7 @@ def test_aggregate_case_statuses_applies_minimax_aliases(tmp_path: Path) -> None
         results_csv,
         [
             {"model": "minimax-m25", "outcome": "passed"},
+            {"model": "MiniMax2.5", "outcome": "passed"},
         ],
     )
 
