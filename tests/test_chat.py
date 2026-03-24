@@ -106,15 +106,26 @@ class BaseHTTPXChatTests:
     def assert_disable_thinking_reasoning_suppressed(
         self,
         reasoning: str | None,
+        visible_text: object,
         *,
         transport: str,
+        expected_answer: str = "quartz",
     ) -> None:
-        if reasoning is None:
+        normalized_visible_text = normalize_text_content(visible_text)
+        normalized_expected_answer = normalize_text_content(expected_answer)
+
+        if reasoning is None and normalized_visible_text == normalized_expected_answer:
             return
 
+        details: list[str] = []
+        if reasoning is not None:
+            details.append(f"reasoning={reasoning!r}")
+        if normalized_visible_text != normalized_expected_answer:
+            details.append(f"visible_text={visible_text!r}")
+        detail_suffix = f" ({', '.join(details)})" if details else ""
         message = (
-            f"{self.MODEL_NAME} still returns reasoning in {transport} responses when "
-            "chat_template_kwargs.enable_thinking=false"
+            f"{self.MODEL_NAME} leaked hidden thinking in {transport} responses when "
+            f"chat_template_kwargs.enable_thinking=false{detail_suffix}"
         )
         if self.EXPECTS_REASONING_NULL_WHEN_THINKING_DISABLED is True:
             raise AssertionError(message)
@@ -708,6 +719,7 @@ class BaseHTTPXChatTests:
         assert message["role"] == "assistant"
         self.assert_disable_thinking_reasoning_suppressed(
             extract_reasoning(message),
+            message["content"],
             transport="create",
         )
 
@@ -806,6 +818,7 @@ class BaseHTTPXChatTests:
         assert stream_result.text
         self.assert_disable_thinking_reasoning_suppressed(
             stream_result.reasoning,
+            stream_result.text,
             transport="stream",
         )
 
@@ -869,6 +882,7 @@ class BaseHTTPXChatTests:
 
         self.assert_disable_thinking_reasoning_suppressed(
             extract_reasoning(instant_message),
+            instant_message["content"],
             transport="create",
         )
 

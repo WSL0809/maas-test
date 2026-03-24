@@ -305,7 +305,7 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_return
 uv run pytest -q tests/test_chat.py -k 'test_create_accepts_chat_template_kwargs_enable_thinking_false or test_stream_accepts_chat_template_kwargs_enable_thinking_false or test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
 ```
 
-- B2-B 严格 suppress reasoning
+- B2-B 严格 suppress hidden thinking
 - 对应用例：
   - `tests/test_chat.py::test_create_suppresses_reasoning_when_thinking_disabled`
   - `tests/test_chat.py::test_stream_suppresses_reasoning_when_thinking_disabled`
@@ -330,6 +330,10 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_accept
 ```bash
 uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_suppresses_reasoning_when_thinking_disabled or test_stream_suppresses_reasoning_when_thinking_disabled' -rxX
 ```
+
+- 当前已知现象：
+  - B2-B 现在按“strict suppress hidden thinking”执行：显式 `reasoning` / `reasoning_content` 为空仍不够，最终可见答案规范化后也必须只等于 `quartz`。
+  - `minimax-m2.5` 在当前后端的流式链路上可能因为上游 vLLM 已知问题 `vllm-project/vllm#36632` 缺少单独 reasoning 字段，但如果 explanation 混进 `delta.content`，该用例仍会判为泄漏并以 `xfail` 记录。
 
 ## B3 思考模式切换
 
@@ -356,7 +360,7 @@ uv run pytest -q tests/test_chat.py --chat-model kimi-k25 -k 'test_create_switch
 
 - 当前已知现象：
   - 首次接入：用于验证同一 messages history 下 `chat_template_kwargs.enable_thinking` 从 `true↔false` 切换的请求可用性。
-  - `enable_thinking=false` 下 reasoning 的严格 suppress 口径与 B2 保持一致：若仍返回 `reasoning` / `reasoning_content`，则以 `xfail` 记录。
+  - `enable_thinking=false` 下的严格 suppress hidden thinking 口径与 B2 保持一致：若仍返回 `reasoning` / `reasoning_content`，或把 explanation 混进最终 `content`，则以 `xfail` 记录。
 
 ## B4 工具调用-单工具
 

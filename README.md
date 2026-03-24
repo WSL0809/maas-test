@@ -4,7 +4,7 @@
 
 仓库现在分成五类默认测试，外加一条显式开启的 K2 verifier 通道：
 
-- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress reasoning 校验、JSON Mode、StructuredOutput
+- 基础 chat 套件：覆盖基础 create、System Prompt、多轮对话、stream、max token 限制、多语言、特殊 token、thinking mode、`enable_thinking=false` 的请求可接受性与严格 suppress hidden thinking 校验（既检查 reasoning 字段，也检查 content 中没有混入解释性文本）、JSON Mode、StructuredOutput
 - API compatibility 套件：覆盖 `/v1/chat/completions`、`/v1/completions`、`/v1/models`、usage 统计，以及常见错误码的 OpenAI-compatible 形状
 - context length 套件：覆盖当前模型可发现性和上下文边界的 live 二分探测
 - tool calling 套件：覆盖基于 K2 sample 子集的数据集驱动 tool-calling 回放，以及显式的多步链式 tool loop 回填路径；当前包含单工具、同消息重复 tool call、同消息并行多工具、多步链式 tool loop 等场景
@@ -289,7 +289,7 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 ## 基础 Chat 套件
 
-基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、单图视觉理解（C1）主路径、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress reasoning 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
+基础 chat 套件位于 [tests/test_chat.py](/Users/wangshilong/Downloads/maas-test/tests/test_chat.py)。它只保留非工具调用主路径：基础 create、System Prompt 遵循、多轮对话上下文保持、基础 SSE stream、图片 content parts 的 create / stream、单图视觉理解（C1）主路径、`max_completion_tokens` 限制、多语言输出、特殊 token 保留、thinking mode 的 create / stream、`chat_template_kwargs.enable_thinking=false` 的 create / stream 请求可接受性、该选项下的严格 suppress hidden thinking 校验、`response_format=json_object` 的 JSON Mode，以及 `StructuredOutput` 结构化输出。
 
 ### 测试行为
 
@@ -371,9 +371,9 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 `test_create_suppresses_reasoning_when_thinking_disabled`
 
-- 严格验证 `chat_template_kwargs={"enable_thinking": false}` 的非流式返回不再携带冗余 `reasoning`
-- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串时视为通过
-- 对当前已知仍会返回 `reasoning` / `reasoning_content` 的模型，记录为 `xfail`，便于和“请求可接受”分开观察
+- 严格验证 `chat_template_kwargs={"enable_thinking": false}` 的非流式返回不会泄漏 hidden thinking
+- 当 `message.reasoning` / `message.reasoning_content` 缺失、为 `null`、或仅为空白字符串，且规范化后的 `message.content` 精确等于 `quartz` 时视为通过
+- 如果 reasoning 字段非空，或 explanation 被混进 `message.content`，则视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_returns_reasoning_when_thinking_enabled`
 
@@ -398,16 +398,16 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 `test_stream_suppresses_reasoning_when_thinking_disabled`
 
-- 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，流式增量里不会再出现冗余 `reasoning`
-- SSE 聚合后的 `stream_result.reasoning` 为 `null` 视为通过
-- 对当前已知仍会返回 `reasoning` / `reasoning_content` 片段的模型，记录为 `xfail`，便于单独追踪 suppress reasoning 行为
+- 严格验证 `stream=true` 且 `chat_template_kwargs={"enable_thinking": false}` 时，流式返回不会泄漏 hidden thinking
+- SSE 聚合后的 `stream_result.reasoning` 必须为 `null`，且最终拼接文本规范化后必须精确等于 `quartz`
+- 如果流式 reasoning 字段为空，但 explanation 混进了 `delta.content`，同样视为不满足严格口径；对当前已知不满足该口径的模型以 `xfail` 记录
 
 `test_create_switches_thinking_to_instant_within_same_conversation`
 
 - 对齐 B3“思考模式切换”：同一会话内先开启 thinking，再切到 instant
 - 第一轮开启 `chat_template_kwargs.enable_thinking=true`，优先断言非流式返回 `message.reasoning` / `message.reasoning_content` 非空；若缺失则回退为检查 `message.content` 含解释性文本，并同时要求最终答案包含 `43`
 - 将上一轮 assistant 文本追加到 history，第二轮切到 `chat_template_kwargs.enable_thinking=false` 并要求回复 `quartz`
-- 检查第二轮返回文本包含 `quartz`，并复用 B2 的 suppress reasoning 口径对第二轮 `message.reasoning` / `message.reasoning_content` 做校验（不符合则记为 `xfail`）
+- 检查第二轮返回文本包含 `quartz`，并复用 B2 的 suppress hidden thinking 口径对第二轮 `message.reasoning` / `message.reasoning_content` 与 `message.content` 做联合校验（不符合则记为 `xfail`）
 
 `test_create_switches_instant_to_thinking_within_same_conversation`
 
@@ -436,11 +436,11 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 | 模型类 | 基础 create/stream 请求 | tools 策略 | `enable_thinking=false` 行为 | StructuredOutput 策略 |
 | --- | --- | --- | --- | --- |
-| `TestKimiK25ChatCompletions` | 默认请求 | 强制命名 `tool_choice` | 请求可接受；严格 suppress reasoning 测试下仍可能返回 `reasoning` | 强制命名 `StructuredOutput` 工具 |
-| `TestGLM5ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受，且严格 suppress reasoning 测试当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
-| `TestQwen35ChatCompletions` | 基础文本请求默认附带 `chat_template_kwargs.enable_thinking=false` | `tool_choice="auto"` | 请求可接受，且严格 suppress reasoning 测试当前稳定返回 `reasoning=null` | `tool_choice="auto"` |
-| `TestMinimaxM25ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受；严格 suppress reasoning 测试下仍可能返回 `reasoning` | `tool_choice="auto"` |
-| `TestMinimaxM21ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受；严格 suppress reasoning 测试下仍可能返回 `reasoning` | `tool_choice="auto"` |
+| `TestKimiK25ChatCompletions` | 默认请求 | 强制命名 `tool_choice` | 请求可接受；严格 suppress hidden thinking 测试下仍可能返回 `reasoning` 或在 `content` 中泄漏解释性文本 | 强制命名 `StructuredOutput` 工具 |
+| `TestGLM5ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受，且当前稳定通过严格 suppress hidden thinking 校验 | `tool_choice="auto"` |
+| `TestQwen35ChatCompletions` | 基础文本请求默认附带 `chat_template_kwargs.enable_thinking=false` | `tool_choice="auto"` | 请求可接受，且当前稳定通过严格 suppress hidden thinking 校验 | `tool_choice="auto"` |
+| `TestMinimaxM25ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受；严格 suppress hidden thinking 测试下仍可能返回 `reasoning` 或在 `content` 中泄漏解释性文本 | `tool_choice="auto"` |
+| `TestMinimaxM21ChatCompletions` | 默认请求 | `tool_choice="auto"` | 请求可接受；严格 suppress hidden thinking 测试下仍可能返回 `reasoning` 或在 `content` 中泄漏解释性文本 | `tool_choice="auto"` |
 
 如果命令行显式传了 `--chat-model`，基础 chat 套件只会运行对应模型类。默认模型列表位于 [chat_models.json](/Users/wangshilong/Downloads/maas-test/chat_models.json)。
 
@@ -450,11 +450,11 @@ uv run python -m k2_verifier.cli /tmp/k2vv-sample/tool-calls/samples.jsonl \
 
 | 模型 | 基础 `create` / `stream` | `enable_thinking=false` 行为 | tools 行为 | StructuredOutput 行为 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| `kimi-k25` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop`；JSON Mode 可在 `message.content` 返回 JSON |
-| `glm-5` | 正常 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
-| `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress reasoning 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
-| `minimax-m2.5` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` / `reasoning_content` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
-| `minimax-m21` | 正常 | 请求可接受；严格 suppress reasoning 测试当前仍可能返回 `reasoning` / `reasoning_content` 文本 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m2.5` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
+| `kimi-k25` | 正常 | 请求可接受；严格 suppress hidden thinking 测试当前仍可能返回 `reasoning` 文本 | forced named `tool_choice` 可用，`message.tool_calls` 正常返回 | 强制命名 `StructuredOutput` 工具可复用同一路径 | 即使返回了 `tool_calls`，`finish_reason` 也可能是 `stop`；JSON Mode 可在 `message.content` 返回 JSON |
+| `glm-5` | 正常 | 请求可接受，且当前稳定通过严格 suppress hidden thinking 校验 | forced named `tool_choice` 会返回顶层 `error`；去掉强制 `tool_choice` 后 relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 和 relaxed tools 行为一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
+| `qwen35` | 默认 thinking 路径偶发超时或流式空 `content`；当前基础文本测试默认使用 `enable_thinking=false` 的稳定路径 | 请求可接受，且当前稳定通过严格 suppress hidden thinking 校验 | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 默认 thinking 打开时不在稳定 passing path；JSON Mode 可在 `message.content` 返回 JSON |
+| `minimax-m2.5` | 正常 | 请求可接受；严格 suppress hidden thinking 测试当前仍可能返回 `reasoning` / `reasoning_content`，或在流式 `content` 中泄漏 explanation | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 复用同一套工具调用最佳路径；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
+| `minimax-m21` | 正常 | 请求可接受；严格 suppress hidden thinking 测试当前仍可能返回 `reasoning` / `reasoning_content`，或在 `content` 中泄漏 explanation | forced named `tool_choice` 返回 `500 upstream_error`；relaxed tools 可用 | 更适合 `tool_choice="auto"` 的 StructuredOutput 工具调用 | 行为基本与 `minimax-m2.5` 一致；JSON Mode 当前把 JSON 放在 `message.reasoning` / `message.reasoning_content` 且 `content=null`（xfail） |
 
 ## API Compatibility 套件
 
